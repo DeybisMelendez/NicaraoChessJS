@@ -36,7 +36,7 @@ function onDrop (source, target) {
 function onSnapEnd () {
     board.position(game.fen())
     pgn.innerHTML = "PGN: " + game.pgn()
-    nicaraoMove(1,5)
+    nicaraoMove(1,3)
 }
 var board = Chessboard("board", config)
 
@@ -48,5 +48,5 @@ function nicaraoMove(turn, depth) {
     //setTimeout(nicaraoMove,300,-turn,depth)
 }
 document.addEventListener("DOMContentLoaded",function(){
-    setTimeout(nicaraoMove,300,1,5)
+    setTimeout(nicaraoMove,1000,1,5)
 })

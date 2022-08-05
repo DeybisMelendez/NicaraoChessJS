@@ -104,7 +104,7 @@ const MVV_LVA = { //Most Valuable Victim - Least Valuable Aggressor
 }
 const PIECE_VALUE = {p : 100,n : 320,b : 330,r : 500,q : 900}
 const MAX_PLY = 64
-const LMR = {fullDepthMove : 3, reductionLimit : 3}
+const LMR = {fullDepthMove : 4, reductionLimit : 3}
 var searchInfo = {}
 
 function is_lmr_ok(move, incheck) {
@@ -140,8 +140,8 @@ function storeKillerMove(move) {
 }
 
 function storeHistoryMove(move, color, depth) {
-    if (move.captured) {
-        searchInfo.historyMoves[color][PST.piece.indexOf(move.piece)][PST.position.indexOf(move.to)] += depth*depth
+    if (move.captured != null) {
+        searchInfo.historyMoves[color][PST.piece.indexOf(move.piece)][PST.position.indexOf(move.to)] += PST.none[move.piece]
     }
 }
 
@@ -151,15 +151,15 @@ function storePV(move) {
     var ply = searchInfo.ply
     searchInfo.pvTable[searchInfo.ply][searchInfo.ply] = move.san
     // escribimos desde la capa mas profunda hasta la actual
-    for (var i=ply+1;i< searchInfo.pvLength[ply+1];i++) {
-        searchInfo.pvTable[ply][i] = searchInfo.pvTable[ply+1][i]
+    for (var nextPly=ply+1;nextPly< searchInfo.pvLength[ply+1];nextPly++) {
+        searchInfo.pvTable[ply][nextPly] = searchInfo.pvTable[ply+1][nextPly]
     }
     // ajuste pv length
     searchInfo.pvLength[ply] = searchInfo.pvLength[ply+1]
-
 }
 
 function enablePVScoring(moves) {
+    //console.log(searchInfo.pvTable[0][searchInfo.ply], searchInfo.ply,searchInfo.pvTable[0].filter(move=>move!=null))
     searchInfo.followPV = false
     if (moves.filter(move=>move.san == searchInfo.pvTable[0][searchInfo.ply]).length == 1) {
         searchInfo.scorePV = true
@@ -168,12 +168,21 @@ function enablePVScoring(moves) {
 }
 
 function valueMove(move, color) {
+    // Orden
+    // PV Move : 2000
+    // Killer Moves : 910-1060
+    // King Attacks (+,#) : 600-640
+    // Piece Capture : 150-500
+    // History Move : (70-120) * Repetitions
+    // Left : 10-60
+
     //PV Move
-    if (searchInfo.scorePV && searchInfo.pvTable[searchInfo.ply][searchInfo.ply] == move.san) {
-        //console.log("pvmove,",move.san)
+    if (searchInfo.scorePV) {
+        if (searchInfo.pvTable[searchInfo.ply][searchInfo.ply] == move.san) {
         searchInfo.scorePV = false
-        //console.log("PV Move:", move.san, "ply:",searchInfo.ply)
+        //console.log(move.san)
         return 2000
+        }
     }
     //MVV-LVA
     if (move.san.charAt(move.san.length-1) == "+" || move.san.charAt(move.san.length-1) == "#") {
@@ -192,7 +201,13 @@ function valueMove(move, color) {
             return MVV_LVA.none[move.piece] + 900
         } else {
             // history move
-            return searchInfo.historyMoves[color][PST.piece.indexOf(move.piece)][PST.position.indexOf(move.to)]
+            var historyMove = searchInfo.historyMoves[color][PST.piece.indexOf(move.piece)][PST.position.indexOf(move.to)]
+            if (historyMove != 0) {
+                return historyMove
+            } else { // movimientos remanentes
+                return MVV_LVA.none[move.piece]
+            }
+            return 
         }
     }
 }
@@ -201,41 +216,38 @@ function sortMoves(moves,color) {
     moves.sort((a,b) => {
         var valueA = valueMove(a, color)
         var valueB = valueMove(b, color)
+        //console.log(a.san, valueA, b.san, valueB)
         return valueB - valueA
     })
     return moves
 }
 
 function quiesce(game, color, alpha, beta) {
-    var standPat = evaluate(game) * color
-    if (standPat >= beta) {
+    var evaluation = evaluate(game) * color
+    if (evaluation >= beta) {
         return beta
     }
-    alpha = Math.max(alpha, standPat)
-    var captures = game.moves().filter(move => move.includes("x"))
+    alpha = Math.max(alpha, evaluation)
+    var captures = game.moves().filter(move => move.captured != null)
     var score = -10000
     for (var i=0; i<captures.length;i++) {
         var move = captures[i]
-        make(game, move,color)
+        make(game, move, color)
         score = -quiesce(game,-color,-beta,-alpha)
         unmake(game,move,color)
-        alpha = Math.max(alpha,score)
-        if (score >=beta) {
-            break
+        if (score >= beta) {
+            return beta
         }
+        alpha = Math.max(alpha,score)
     }
     return alpha
 }
 // Negamax + Alpha beta + LMR
 function negamax(game, depth, color, alpha, beta) {
-    var lmrSearched = 0
     // Inicializa PV Length
     searchInfo.pvLength[searchInfo.ply] = searchInfo.ply
-    if (depth == 0 || game.game_over()) {
-        return evaluate(game)*color//quiesce(game,color,alpha,beta)
-    }
-    if (searchInfo.ply > MAX_PLY-1) {
-        return evaluate(game)*color
+    if (depth == 0 || game.game_over() || searchInfo.ply > MAX_PLY-1) {
+        return quiesce(game,color,alpha,beta)
     }
     var moves = game.moves({verbose:true})
     if (searchInfo.followPV) {
@@ -247,20 +259,24 @@ function negamax(game, depth, color, alpha, beta) {
     for (var i=0; i < moves.length;i++) {
         var move = moves[i]
         make(game,move,color)
-        if (lmrSearched == 0) { //First move, use full-window search
+        if (i == 0) { //First move, use full-window search
             score = -negamax(game,depth-1,-color, -beta, -alpha)
         } else { // Late Move Reduction LMR
-            if (lmrSearched >= LMR.fullDepthMove && depth >= LMR.reductionLimit && is_lmr_ok(move, game.in_check())) {
-                score = -negamax(game, depth-LMR.reductionLimit+1,-color,-alpha-1,-alpha)
+            if (i >= LMR.fullDepthMove && depth >= LMR.reductionLimit && is_lmr_ok(move, game.in_check())) {
+                score = -negamax(game, depth-2,-color,-alpha-1,-alpha)
             } else {
                 score = alpha + 1
             }
+            //Research
             if (score > alpha) {
+                score = -negamax(game,depth-1,-color, -beta, -alpha)
+            }
+            /*if (score > alpha) {
                 score = -negamax(game, depth-1,-color,-alpha-1,-alpha)
                 if(score > alpha && score < beta) {
                     score = -negamax(game,depth-1,-color, -beta, -alpha)
                 }
-            }
+            }*/
         }
         unmake(game,move,color)
         if (score >= beta) {
@@ -269,13 +285,13 @@ function negamax(game, depth, color, alpha, beta) {
             return beta
         }
         if (score > alpha) {
+            //console.log(move)
             //encontró un mejor movimiento
             storeHistoryMove(game,move,color, depth)
             alpha = score
             // Escribimos el PV
             storePV(move)
         }
-        lmrSearched++
     }
     return alpha
 }
@@ -390,10 +406,11 @@ export function nicarao(game,depth,color, alpha, beta) {
             console.log("cp:",score,
             "depth:",currentDepth,
             "nodes:", searchInfo.nodes,
-            "pv:", searchInfo.pvTable[0].filter(m=> m!= null)
+            "pv:", searchInfo.pvTable[0].filter(move=>move!=null),
         )
         bestmove = searchInfo.pvTable[0][0]
-        
+        //searchInfo.pvTable = searchInfo.pvTable.map(x=>x)
+        //setSearchInfo(fen)
     }
     console.timeEnd("time")
     return bestmove
