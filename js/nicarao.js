@@ -1,98 +1,6 @@
 //import {Chess} from "./chess.js"
 import {PST} from "./pieceSquareTable.js"
 
-// PVS ni Negascout No entiendo por qué funciona mucho mas lento y recorre mas nodos que negamax + alphabeta
-// pero no lo borro por si encuentro el error mas adelante
-/*
-function negamaxPVS(game, depth, color, alpha, beta) {
-    // Inicializa PV Length
-    searchInfo.pvLength[searchInfo.ply] = searchInfo.ply
-    var foundPV = false
-    if (depth == 0 || game.game_over()) {
-        return evaluate(game)*color//quiesce(game,color,alpha,beta)
-    }
-    if (searchInfo.ply > MAX_PLY-1) {
-        return evaluate(game)*color
-    }
-    var moves = game.moves({verbose:true})
-    if (searchInfo.followPV) {
-        enablePVScoring(moves)
-    }
-    var moves = sortMoves(moves, color)
-    //console.log(moves)
-    var score = 0
-    for (var i=0; i < moves.length;i++) {
-        var move = moves[i]
-        make(game,move,color)
-        if (foundPV) {
-            score = -negamaxPVS(game,depth-1,-color, -alpha-1, -alpha)
-            if (score > alpha && score < beta) {
-                score = -negamaxPVS(game,depth-1,-color, -beta, -alpha) // research
-            }
-        } else {
-            score = -negamaxPVS(game,depth-1,-color, -beta, -alpha)
-        }
-        //score = -negamax(game,depth-1,-color, -beta, -alpha)
-        unmake(game,move,color)
-        if (score >= beta) {
-            // beta cut-off
-            storeKillerMove(move)
-            return beta
-        }
-        if (score > alpha) {
-            //encontró un mejor movimiento
-            storeHistoryMove(game,move,color, depth)
-            alpha = score
-            // Escribimos el PV
-            storePV(move)
-            foundPV = true
-        }
-    }
-    return alpha
-}
-
-function negascout(game, depth,color, alpha, beta) {
-    // Inicializa PV Length
-    searchInfo.pvLength[searchInfo.ply] = searchInfo.ply
-    if (depth == 0 || game.game_over()) {
-        return evaluate(game)*color//quiesce(game,color,alpha,beta)
-    }
-    if (searchInfo.ply > MAX_PLY-1) {
-        return evaluate(game)*color
-    }
-    var moves = game.moves({verbose:true})
-    if (searchInfo.followPV) {
-        enablePVScoring(moves)
-    }
-    var moves = sortMoves(moves, color)
-    var bestscore = -10000
-    var b = beta
-    for (var i=0; i < moves.length;i++) {
-        var move = moves[i]
-        make(game,move,color)
-        var score = -negascout(game,depth-1,-color, -beta, -alpha)
-        if (score > alpha && score < beta && i > 1) {
-            score = -negascout(game,depth-1,-color,-beta,-score)
-        }
-        unmake(game,move,color)
-        bestscore = Math.max(bestscore,score)
-        if (bestscore > alpha) {
-            //encontró un mejor movimiento
-            storeHistoryMove(game,move,color, depth)
-            alpha = bestscore
-            // Escribimos el PV
-            storePV(move)
-        }
-        if (alpha >= beta) {
-            // beta cut-off
-            storeKillerMove(move)
-            return alpha
-        }
-        b = alpha + 1
-    }
-    return bestscore
-}*/
-
 const MVV_LVA = { //Most Valuable Victim - Least Valuable Aggressor
     k : {k:600,q:610,r:620,b:630,n:640,p:640},
     q : {k:500,q:510,r:520,b:530,n:540,p:550},
@@ -159,7 +67,6 @@ function storePV(move) {
 }
 
 function enablePVScoring(moves) {
-    //console.log(searchInfo.pvTable[0][searchInfo.ply], searchInfo.ply,searchInfo.pvTable[0].filter(move=>move!=null))
     searchInfo.followPV = false
     if (moves.filter(move=>move.san == searchInfo.pvTable[0][searchInfo.ply]).length == 1) {
         searchInfo.scorePV = true
@@ -180,7 +87,6 @@ function valueMove(move, color) {
     if (searchInfo.scorePV) {
         if (searchInfo.pvTable[searchInfo.ply][searchInfo.ply] == move.san) {
         searchInfo.scorePV = false
-        //console.log(move.san)
         return 2000
         }
     }
@@ -216,7 +122,6 @@ function sortMoves(moves,color) {
     moves.sort((a,b) => {
         var valueA = valueMove(a, color)
         var valueB = valueMove(b, color)
-        //console.log(a.san, valueA, b.san, valueB)
         return valueB - valueA
     })
     return moves
@@ -254,29 +159,21 @@ function negamax(game, depth, color, alpha, beta) {
         enablePVScoring(moves)
     }
     var moves = sortMoves(moves, color)
-    //console.log(moves)
     var score = -10000
     for (var i=0; i < moves.length;i++) {
         var move = moves[i]
         make(game,move,color)
-        if (i == 0) { //First move, use full-window search
-            score = -negamax(game,depth-1,-color, -beta, -alpha)
-        } else { // Late Move Reduction LMR
-            if (i >= LMR.fullDepthMove && depth >= LMR.reductionLimit && is_lmr_ok(move, game.in_check())) {
+        if (i == 0 &&
+            i >= LMR.fullDepthMove &&
+            depth >= LMR.reductionLimit &&
+            is_lmr_ok(move, game.in_check())) { //First move, use full-window search
                 score = -negamax(game, depth-2,-color,-alpha-1,-alpha)
-            } else {
+        } else { // Late Move Reduction LMR
                 score = alpha + 1
-            }
-            //Research
-            if (score > alpha) {
-                score = -negamax(game,depth-1,-color, -beta, -alpha)
-            }
-            /*if (score > alpha) {
-                score = -negamax(game, depth-1,-color,-alpha-1,-alpha)
-                if(score > alpha && score < beta) {
-                    score = -negamax(game,depth-1,-color, -beta, -alpha)
-                }
-            }*/
+        }
+        //Research
+        if (score > alpha) {
+            score = -negamax(game,depth-1,-color, -beta, -alpha)
         }
         unmake(game,move,color)
         if (score >= beta) {
@@ -285,7 +182,6 @@ function negamax(game, depth, color, alpha, beta) {
             return beta
         }
         if (score > alpha) {
-            //console.log(move)
             //encontró un mejor movimiento
             storeHistoryMove(game,move,color, depth)
             alpha = score
