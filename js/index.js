@@ -48,5 +48,5 @@ function nicaraoMove(turn, depth) {
     //setTimeout(nicaraoMove,300,-turn,depth)
 }
 document.addEventListener("DOMContentLoaded",function(){
-    setTimeout(nicaraoMove,300,1,3)
+    setTimeout(nicaraoMove,300,1,4)
 })
