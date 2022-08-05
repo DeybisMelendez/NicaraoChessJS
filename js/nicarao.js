@@ -49,7 +49,7 @@ function storeKillerMove(move) {
 
 function storeHistoryMove(move, color, depth) {
     if (move.captured != null) {
-        searchInfo.historyMoves[color][PST.piece.indexOf(move.piece)][PST.position.indexOf(move.to)] += PST.none[move.piece]
+        searchInfo.historyMoves[color][PST.piece.indexOf(move.piece)][PST.position.indexOf(move.to)] += depth*depth
     }
 }
 
@@ -80,7 +80,7 @@ function valueMove(move, color) {
     // Killer Moves : 910-1060
     // King Attacks (+,#) : 600-640
     // Piece Capture : 150-500
-    // History Move : (70-120) * Repetitions
+    // History Move : depth*depth
     // Left : 10-60
 
     //PV Move
@@ -133,7 +133,7 @@ function quiesce(game, color, alpha, beta) {
         return beta
     }
     alpha = Math.max(alpha, evaluation)
-    var captures = game.moves().filter(move => move.captured != null)
+    var captures = game.moves({verbose:true}).filter(move => move.captured != null)
     var score = -10000
     for (var i=0; i<captures.length;i++) {
         var move = captures[i]
@@ -145,6 +145,7 @@ function quiesce(game, color, alpha, beta) {
         }
         alpha = Math.max(alpha,score)
     }
+    //console.log(evaluation, alpha)
     return alpha
 }
 // Negamax + Alpha beta + LMR
