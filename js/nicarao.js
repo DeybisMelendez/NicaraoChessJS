@@ -104,7 +104,14 @@ const MVV_LVA = { //Most Valuable Victim - Least Valuable Aggressor
 }
 const PIECE_VALUE = {p : 100,n : 320,b : 330,r : 500,q : 900}
 const MAX_PLY = 64
+const LMR = {fullDepthMove : 3, reductionLimit : 3}
 var searchInfo = {}
+
+function is_lmr_ok(move, incheck) {
+    var isNotCapture = move.captured == null
+    var isNotCheck = move.san[move.san.length-1] != "+"
+    return isNotCapture && isNotCheck && !incheck
+}
 
 function setSearchInfo(fen) {
     var historyMoves = new Array(12).fill().map(() => new Array(64).fill(0))
@@ -219,8 +226,9 @@ function quiesce(game, color, alpha, beta) {
     }
     return alpha
 }
-// Negamax + Alpha beta
+// Negamax + Alpha beta + LMR
 function negamax(game, depth, color, alpha, beta) {
+    var lmrSearched = 0
     // Inicializa PV Length
     searchInfo.pvLength[searchInfo.ply] = searchInfo.ply
     if (depth == 0 || game.game_over()) {
@@ -239,7 +247,21 @@ function negamax(game, depth, color, alpha, beta) {
     for (var i=0; i < moves.length;i++) {
         var move = moves[i]
         make(game,move,color)
-        score = -negamax(game,depth-1,-color, -beta, -alpha)
+        if (lmrSearched == 0) { //First move, use full-window search
+            score = -negamax(game,depth-1,-color, -beta, -alpha)
+        } else { // Late Move Reduction LMR
+            if (lmrSearched >= LMR.fullDepthMove && depth >= LMR.reductionLimit && is_lmr_ok(move, game.in_check())) {
+                score = -negamax(game, depth-LMR.reductionLimit+1,-color,-alpha-1,-alpha)
+            } else {
+                score = alpha + 1
+            }
+            if (score > alpha) {
+                score = -negamax(game, depth-1,-color,-alpha-1,-alpha)
+                if(score > alpha && score < beta) {
+                    score = -negamax(game,depth-1,-color, -beta, -alpha)
+                }
+            }
+        }
         unmake(game,move,color)
         if (score >= beta) {
             // beta cut-off
@@ -253,6 +275,7 @@ function negamax(game, depth, color, alpha, beta) {
             // Escribimos el PV
             storePV(move)
         }
+        lmrSearched++
     }
     return alpha
 }
