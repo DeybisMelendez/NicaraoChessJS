@@ -15,3 +15,5 @@
     - MVV/LVA
     - Killer Heuristic
     - History Heuristic
+- Selectivity:
+    - Late Move Reduction (LMR)
