@@ -7,7 +7,8 @@ var config = {
     position: game.fen(),
     onDragStart: onDragStart,
     onDrop: onDrop,
-    onSnapEnd: onSnapEnd
+    onSnapEnd: onSnapEnd,
+    orientation: "black",
 }
 
 function onDragStart (source, piece, position, orientation) {
@@ -36,7 +37,7 @@ function onDrop (source, target) {
 function onSnapEnd () {
     board.position(game.fen())
     pgn.innerHTML = "PGN: " + game.pgn()
-    nicaraoMove(1,3)
+    nicaraoMove(1,4)
 }
 var board = Chessboard("board", config)
 
@@ -48,5 +49,5 @@ function nicaraoMove(turn, depth) {
     //setTimeout(nicaraoMove,300,-turn,depth)
 }
 document.addEventListener("DOMContentLoaded",function(){
-    setTimeout(nicaraoMove,1000,1,6)
+    setTimeout(nicaraoMove,1000,1,4)
 })

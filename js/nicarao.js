@@ -1,4 +1,5 @@
 //import {Chess} from "./chess.js"
+import { Chess } from "./chess.js"
 import {PST} from "./pieceSquareTable.js"
 
 const MVV_LVA = { //Most Valuable Victim - Least Valuable Aggressor
@@ -13,6 +14,7 @@ const MVV_LVA = { //Most Valuable Victim - Least Valuable Aggressor
 const PIECE_VALUE = {p : 100,n : 320,b : 330,r : 500,q : 900}
 const MAX_PLY = 64
 const LMR = {fullDepthMove : 4, reductionLimit : 3}
+const NULLMOVE = {R:1}
 var searchInfo = {}
 
 function is_lmr_ok(move, incheck) {
@@ -58,6 +60,7 @@ function storePV(move) {
     // escribe el actual pv
     var ply = searchInfo.ply
     searchInfo.pvTable[searchInfo.ply][searchInfo.ply] = move.san
+    //if (ply == 0) { console.log("new pv move:", move.san)}
     // escribimos desde la capa mas profunda hasta la actual
     for (var nextPly=ply+1;nextPly< searchInfo.pvLength[ply+1];nextPly++) {
         searchInfo.pvTable[ply][nextPly] = searchInfo.pvTable[ply+1][nextPly]
@@ -72,6 +75,21 @@ function enablePVScoring(moves) {
         searchInfo.scorePV = true
         searchInfo.followPV = true
     }
+}
+
+function nullMove(inCheck,depth, fen, color, beta) { // TODO
+    //https://www.youtube.com/watch?v=n6xAzopULxU&t=289s
+    var score = -10000
+    if (depth>= NULLMOVE.R+1 && !inCheck && searchInfo.ply > 0) {
+        if (color == -1) {
+            fen = fen.replace(" b ", " w ")
+        } else {
+            fen = fen.replace(" w ", " b ")
+        }
+        var copyBoard = new Chess(fen)
+        score = -negamax(copyBoard,depth-1-NULLMOVE.R,-color,-beta,-beta+1)
+    }
+    return score
 }
 
 function valueMove(move, color) {
@@ -134,6 +152,7 @@ function quiesce(game, color, alpha, beta) {
     }
     alpha = Math.max(alpha, evaluation)
     var captures = game.moves({verbose:true}).filter(move => move.captured != null)
+    captures = sortMoves(captures,color)
     var score = -10000
     for (var i=0; i<captures.length;i++) {
         var move = captures[i]
@@ -153,26 +172,33 @@ function negamax(game, depth, color, alpha, beta) {
     // Inicializa PV Length
     searchInfo.pvLength[searchInfo.ply] = searchInfo.ply
     if (depth == 0 || game.game_over() || searchInfo.ply > MAX_PLY-1) {
-        return quiesce(game,color,alpha,beta)
+        return evaluate(game)*color//quiesce(game,color,alpha,beta)
     }
     var moves = game.moves({verbose:true})
     if (searchInfo.followPV) {
         enablePVScoring(moves)
     }
     var moves = sortMoves(moves, color)
-    var score = -10000
+    //Null Move
+    var score = nullMove(game.in_check(),depth,game.fen(),color,beta)
+    if (score >= beta) {
+        return beta
+    }
+    var movesSearched = 0
     for (var i=0; i < moves.length;i++) {
         var move = moves[i]
         make(game,move,color)
-        if (i == 0 &&
-            i >= LMR.fullDepthMove &&
+        // Late Move Reduction LMR
+        if (movesSearched > LMR.fullDepthMove &&
             depth >= LMR.reductionLimit &&
-            is_lmr_ok(move, game.in_check())) { //First move, use full-window search
-                score = -negamax(game, depth-2,-color,-alpha-1,-alpha)
-        } else { // Late Move Reduction LMR
-                score = alpha + 1
+            is_lmr_ok(move, game.in_check())) {
+                //console.log(depth, depth-LMR.reductionLimit)
+            score = -negamax(game, depth-LMR.reductionLimit,-color,-alpha-1,-alpha)
+        } else {
+            score = alpha + 1
         }
-        //Research
+        movesSearched++
+        //Research normal Negamax
         if (score > alpha) {
             score = -negamax(game,depth-1,-color, -beta, -alpha)
         }
