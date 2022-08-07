@@ -18,9 +18,9 @@
     - Killer Heuristic
     - History Heuristic
 - Selectivity:
+    - Null Move Reduction
     - Late Move Reduction (LMR)
     - Quiescence Search
-    - 
 
 ### Evaluation
 

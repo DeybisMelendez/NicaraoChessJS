@@ -1,4 +1,7 @@
-//import {Chess} from "./chess.js"
+//TODO https://www.youtube.com/watch?v=1LmdOHshYkI&list=PLmN0neTso3Jxh8ZIylk74JpwfiWNI76Cs&index=64
+// Revisar bien por qué cambia mucho el orden de jugadas en PV Table
+// Revisar por que Quiescence es muy lento (optimizar)
+
 import { Chess } from "./chess.js"
 import {PST} from "./pieceSquareTable.js"
 
@@ -13,7 +16,7 @@ const MVV_LVA = { //Most Valuable Victim - Least Valuable Aggressor
 }
 const PIECE_VALUE = {p : 100,n : 320,b : 330,r : 500,q : 900}
 const MAX_PLY = 64
-const LMR = {fullDepthMove : 4, reductionLimit : 3}
+const LMR = {fullDepthMove : 4, reductionLimit : 10}
 const NULLMOVE = {R:1}
 var searchInfo = {}
 
@@ -51,7 +54,7 @@ function storeKillerMove(move) {
 
 function storeHistoryMove(move, color, depth) {
     if (move.captured != null) {
-        searchInfo.historyMoves[color][PST.piece.indexOf(move.piece)][PST.position.indexOf(move.to)] += depth*depth
+        searchInfo.historyMoves[color][PST.piece.indexOf(move.piece.toLowerCase())][PST.position.indexOf(move.to)] += depth*depth
     }
 }
 
@@ -78,7 +81,6 @@ function enablePVScoring(moves) {
 }
 
 function nullMove(inCheck,depth, fen, color, beta) { // TODO
-    //https://www.youtube.com/watch?v=n6xAzopULxU&t=289s
     var score = -10000
     if (depth>= NULLMOVE.R+1 && !inCheck && searchInfo.ply > 0) {
         if (color == -1) {
@@ -111,25 +113,25 @@ function valueMove(move, color) {
     //MVV-LVA
     if (move.san.charAt(move.san.length-1) == "+" || move.san.charAt(move.san.length-1) == "#") {
         //ataque al rey
-        return MVV_LVA.k[move.piece]
+        return MVV_LVA.k[move.piece.toLowerCase()]
     } else if (move.captured != null) {
         //valora captura de piezas
-        return MVV_LVA[move.captured][move.piece]
-    } else {//jugadas tranquilas
+        return MVV_LVA[move.captured.toLowerCase()][move.piece.toLowerCase()]
+    } else {//jugadas tranquilas Quiescence
         //killer move
         var km = searchInfo.killerMoves
         var ply = searchInfo.ply
         if (km[0][ply] == move.san) {
-            return MVV_LVA.none[move.piece] + 1000
+            return MVV_LVA.none[move.piece.toLowerCase()] + 1000
         } else if (km[1][ply] == move.san) {
-            return MVV_LVA.none[move.piece] + 900
+            return MVV_LVA.none[move.piece.toLowerCase()] + 900
         } else {
             // history move
-            var historyMove = searchInfo.historyMoves[color][PST.piece.indexOf(move.piece)][PST.position.indexOf(move.to)]
+            var historyMove = searchInfo.historyMoves[color][PST.piece.indexOf(move.piece.toLowerCase())][PST.position.indexOf(move.to)]
             if (historyMove != 0) {
                 return historyMove
             } else { // movimientos remanentes
-                return MVV_LVA.none[move.piece]
+                return MVV_LVA.none[move.piece.toLowerCase()]
             }
             return 
         }
@@ -146,25 +148,36 @@ function sortMoves(moves,color) {
 }
 
 function quiesce(game, color, alpha, beta) {
-    var evaluation = evaluate(game) * color
-    if (evaluation >= beta) {
+    var standPat = evaluate(game) * color
+    if (standPat >= beta) {
         return beta
     }
-    alpha = Math.max(alpha, evaluation)
+    alpha = Math.max(alpha, standPat)
     var captures = game.moves({verbose:true}).filter(move => move.captured != null)
-    captures = sortMoves(captures,color)
+    captures.sort((a,b) => MVV_LVA[b.captured.toLowerCase()][b.piece.toLowerCase()] - MVV_LVA[a.captured.toLowerCase()][a.piece.toLowerCase()])
     var score = -10000
     for (var i=0; i<captures.length;i++) {
         var move = captures[i]
+        //var actualMaterial = searchInfo.material
         make(game, move, color)
-        score = -quiesce(game,-color,-beta,-alpha)
+        //var newMaterial = searchInfo.material
+        //if (newMaterial*color >= actualMaterial*color) {
+            score = -quiesce(game,-color,-beta,-alpha)
+            //console.log(game.history(), score*color)
+        //} else {
+        //    unmake(game,move,color)
+        //    return beta
+        //}
         unmake(game,move,color)
+            /*make(game, move, color)
+            score = -quiesce(game,-color,-beta,-alpha)
+            console.log(game.history(), score*color)
+            unmake(game,move,color)*/
         if (score >= beta) {
             return beta
         }
         alpha = Math.max(alpha,score)
     }
-    //console.log(evaluation, alpha)
     return alpha
 }
 // Negamax + Alpha beta + LMR
@@ -172,7 +185,7 @@ function negamax(game, depth, color, alpha, beta) {
     // Inicializa PV Length
     searchInfo.pvLength[searchInfo.ply] = searchInfo.ply
     if (depth == 0 || game.game_over() || searchInfo.ply > MAX_PLY-1) {
-        return evaluate(game)*color//quiesce(game,color,alpha,beta)
+        return quiesce(game,color,alpha,beta)
     }
     var moves = game.moves({verbose:true})
     if (searchInfo.followPV) {
@@ -249,10 +262,12 @@ function evaluate(game) {
 function adjustMaterial(move, color) {
     var value = 0
     if (move.captured != null) {
-        value -= PIECE_VALUE[move.captured] * color
+        //console.log(PIECE_VALUE[move.captured.toLowerCase()] * color, "captured")
+        value -= PIECE_VALUE[move.captured.toLowerCase()] * color
     }
     if (move.promotion != null) {
-        value += (PIECE_VALUE[move.promotion] - PIECE_VALUE[move.p]) * color
+        value += (PIECE_VALUE[move.promotion.toLowerCase()] - PIECE_VALUE.p) * color
+        //console.log((PIECE_VALUE[move.promotion] - PIECE_VALUE[move.p]) * color, "promotion")
     }
     return value
 }
@@ -307,9 +322,9 @@ function pstBonus(game) {
     var pieceList = [].concat(...game.board()).filter(piece => piece != null)
     pieceList.forEach(piece => {
         if (piece.color == "w") {
-            white += phaseBonus("mg",piece.color,piece.type,piece.square)
+            white += phaseBonus("og",piece.color,piece.type,piece.square)
         } else {
-            black += phaseBonus("mg",piece.color,piece.type,piece.square)
+            black += phaseBonus("og",piece.color,piece.type,piece.square)
         }
     })
     return white - black
@@ -329,6 +344,7 @@ export function nicarao(game,depth,color, alpha, beta) {
             console.log("cp:",score,
             "depth:",currentDepth,
             "nodes:", searchInfo.nodes,
+            "material:", searchInfo.material,
             "pv:", searchInfo.pvTable[0].filter(move=>move!=null),
         )
         bestmove = searchInfo.pvTable[0][0]
