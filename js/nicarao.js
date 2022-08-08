@@ -16,7 +16,7 @@ const MVV_LVA = { //Most Valuable Victim - Least Valuable Aggressor
 }
 const PIECE_VALUE = {p : 100,n : 320,b : 330,r : 500,q : 900}
 const MAX_PLY = 64
-const LMR = {fullDepthMove : 6}
+const LMR = {fullDepthMove : 3}
 const NULLMOVE = {R:1}
 var searchInfo = {}
 
@@ -191,21 +191,19 @@ function negamax(game, depth, color, alpha, beta) {
         var move = moves[i]
         make(game,move,color)
         // Late Move Reduction LMR
-        var nonPVReduction = Math.floor(depth*0.66667)
         var PVReduction = depth-1
-        //console.log(nonPVReduction, PVReduction, depth)
+        var nonPVReduction = Math.floor(depth*0.66667)
         if (movesSearched >= LMR.fullDepthMove &&
             is_lmr_ok(move, game.in_check())) {
-                //console.log(depth, depth-LMR.reductionLimit)
-            score = -negamax(game, nonPVReduction,-color,-alpha-1,-alpha)
+            score = -negamax(game, nonPVReduction,-color,-beta,-alpha)
+            /*if (score > alpha) {
+                score = -negamax(game,PVReduction,-color, -beta, -alpha)
+            }*/
         } else {
-            score = alpha + 1
-        }
-        movesSearched++
-        //Research normal Negamax
-        if (score > alpha) {
+            //Research normal Negamax
             score = -negamax(game,PVReduction,-color, -beta, -alpha)
         }
+        movesSearched++ 
         unmake(game,move,color)
         if (score >= beta) {
             // beta cut-off
