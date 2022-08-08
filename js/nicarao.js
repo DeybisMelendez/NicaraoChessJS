@@ -16,7 +16,7 @@ const MVV_LVA = { //Most Valuable Victim - Least Valuable Aggressor
 }
 const PIECE_VALUE = {p : 100,n : 320,b : 330,r : 500,q : 900}
 const MAX_PLY = 64
-const LMR = {fullDepthMove : 4, reductionLimit : 10}
+const LMR = {fullDepthMove : 6}
 const NULLMOVE = {R:1}
 var searchInfo = {}
 
@@ -40,7 +40,8 @@ function setSearchInfo(fen) {
         pvTable : new Array(MAX_PLY).fill().map(() => new Array(MAX_PLY)),
         //Sorting PV move
         followPV : false,
-        scorePV : false
+        scorePV : false,
+        phase : ""
     }
 }
 
@@ -148,31 +149,19 @@ function sortMoves(moves,color) {
 }
 
 function quiesce(game, color, alpha, beta) {
-    var standPat = evaluate(game) * color
+    var standPat = evaluate(game, color)
     if (standPat >= beta) {
         return beta
     }
     alpha = Math.max(alpha, standPat)
     var captures = game.moves({verbose:true}).filter(move => move.captured != null)
-    captures.sort((a,b) => MVV_LVA[b.captured.toLowerCase()][b.piece.toLowerCase()] - MVV_LVA[a.captured.toLowerCase()][a.piece.toLowerCase()])
+    captures.sort((a,b) => MVV_LVA[b.captured][b.piece] - MVV_LVA[a.captured][a.piece])
     var score = -10000
     for (var i=0; i<captures.length;i++) {
         var move = captures[i]
-        //var actualMaterial = searchInfo.material
         make(game, move, color)
-        //var newMaterial = searchInfo.material
-        //if (newMaterial*color >= actualMaterial*color) {
-            score = -quiesce(game,-color,-beta,-alpha)
-            //console.log(game.history(), score*color)
-        //} else {
-        //    unmake(game,move,color)
-        //    return beta
-        //}
+        score = -quiesce(game,-color,-beta,-alpha)
         unmake(game,move,color)
-            /*make(game, move, color)
-            score = -quiesce(game,-color,-beta,-alpha)
-            console.log(game.history(), score*color)
-            unmake(game,move,color)*/
         if (score >= beta) {
             return beta
         }
@@ -202,18 +191,20 @@ function negamax(game, depth, color, alpha, beta) {
         var move = moves[i]
         make(game,move,color)
         // Late Move Reduction LMR
-        if (movesSearched > LMR.fullDepthMove &&
-            depth >= LMR.reductionLimit &&
+        var nonPVReduction = Math.floor(depth*0.66667)
+        var PVReduction = depth-1
+        //console.log(nonPVReduction, PVReduction, depth)
+        if (movesSearched >= LMR.fullDepthMove &&
             is_lmr_ok(move, game.in_check())) {
                 //console.log(depth, depth-LMR.reductionLimit)
-            score = -negamax(game, depth-LMR.reductionLimit,-color,-alpha-1,-alpha)
+            score = -negamax(game, nonPVReduction,-color,-alpha-1,-alpha)
         } else {
             score = alpha + 1
         }
         movesSearched++
         //Research normal Negamax
         if (score > alpha) {
-            score = -negamax(game,depth-1,-color, -beta, -alpha)
+            score = -negamax(game,PVReduction,-color, -beta, -alpha)
         }
         unmake(game,move,color)
         if (score >= beta) {
@@ -245,12 +236,30 @@ function unmake(game, move,color) {
     game.undo()
 }
 
-function evaluate(game) {
+function evaluate(game, color) {
     var evaluate = 0
+    var pieceList = [].concat(...game.board()).filter(piece => piece != null)
     evaluate += searchInfo.material
-    evaluate += pstBonus(game)
+    // Game Phase
+    var phase = "mg"
+    var minorPieces = pieceList.filter(piece => piece.type == "n" || piece.type == "b" || piece.type == "r")
+    var queensCount = pieceList.filter(piece => piece.type == "q").length
+    if ( queensCount == 0 || minorPieces.length <= 4 && queensCount > 0) {
+        phase = "eg"
+    }
+    if (phase == "mg") {
+        evaluate += pstBonus("mg", pieceList)
+    } else {
+        evaluate += pstBonus("eg", pieceList)
+    }
+    searchInfo.phase = phase
+    if (game.in_checkmate()) {
+        return 5000 * color
+    } else if(game.in_draw() || game.in_stalemate() || game.in_threefold_repetition()) {
+        return 0
+    }
     //evaluate += mobility(game)
-    return evaluate
+    return evaluate * color
 }
 
 /*function mobility(game) {
@@ -316,15 +325,14 @@ function phaseBonus(phase, color, type, square) {
     return PST[phase][color][type][PST.position.indexOf(square)]
 }
 
-function pstBonus(game) {
+function pstBonus(phase, pieceList) {
     var white = 0
     var black = 0
-    var pieceList = [].concat(...game.board()).filter(piece => piece != null)
     pieceList.forEach(piece => {
         if (piece.color == "w") {
-            white += phaseBonus("og",piece.color,piece.type,piece.square)
+            white += phaseBonus(phase,piece.color,piece.type,piece.square)
         } else {
-            black += phaseBonus("og",piece.color,piece.type,piece.square)
+            black += phaseBonus(phase,piece.color,piece.type,piece.square)
         }
     })
     return white - black
@@ -338,18 +346,16 @@ export function nicarao(game,depth,color, alpha, beta) {
     var score = 0
     var bestmove = ""
     for (var currentDepth=1;currentDepth <= depth;currentDepth++){
-        //searchInfo.nodes = 0
         searchInfo.followPV = true
         score = negamax(game,currentDepth,color,-beta, -alpha)
             console.log("cp:",score,
             "depth:",currentDepth,
             "nodes:", searchInfo.nodes,
             "material:", searchInfo.material,
+            "phase", searchInfo.phase,
             "pv:", searchInfo.pvTable[0].filter(move=>move!=null),
         )
         bestmove = searchInfo.pvTable[0][0]
-        //searchInfo.pvTable = searchInfo.pvTable.map(x=>x)
-        //setSearchInfo(fen)
     }
     console.timeEnd("time")
     return bestmove

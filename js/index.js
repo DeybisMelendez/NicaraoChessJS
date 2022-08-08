@@ -8,7 +8,7 @@ var config = {
     onDragStart: onDragStart,
     onDrop: onDrop,
     onSnapEnd: onSnapEnd,
-    orientation: "black",
+    //orientation: "black",
 }
 
 function onDragStart (source, piece, position, orientation) {
@@ -37,9 +37,26 @@ function onDrop (source, target) {
 function onSnapEnd () {
     board.position(game.fen())
     pgn.innerHTML = "PGN: " + game.pgn()
-    nicaraoMove(1,4)
+    nicaraoMove(gameturn,gamedepth)
 }
 var board = Chessboard("board", config)
+
+document.getElementById("white").addEventListener("click", playwhite)
+document.getElementById("black").addEventListener("click", playblack)
+
+function playwhite() {
+    gameturn = 1
+    nicaraoMove(gameturn,gamedepth)
+    board.orientation("white")
+}
+
+function playblack() {
+    gameturn = -1
+    board.orientation("black")
+}
+
+var gameturn = -1
+var gamedepth = 1
 
 function nicaraoMove(turn, depth) {
     var bestmove = nicarao(game,depth,turn,-10000,10000, game.history({verbose:true}))
@@ -49,5 +66,8 @@ function nicaraoMove(turn, depth) {
     //setTimeout(nicaraoMove,300,-turn,depth)
 }
 document.addEventListener("DOMContentLoaded",function(){
-    setTimeout(nicaraoMove,1000,1,4)
+    if (gameturn == 1) {
+        setTimeout(nicaraoMove,1000,gameturn,gamedepth)
+
+    }
 })
