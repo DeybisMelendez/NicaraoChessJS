@@ -1,7 +1,6 @@
 //TODO https://www.youtube.com/watch?v=1LmdOHshYkI&list=PLmN0neTso3Jxh8ZIylk74JpwfiWNI76Cs&index=64
-// Revisar bien por qué cambia mucho el orden de jugadas en PV Table
-// Revisar por que Quiescence es muy lento (optimizar)
-
+// https://www.youtube.com/watch?v=5EMLgIFv5Qg&list=PLmN0neTso3Jxh8ZIylk74JpwfiWNI76Cs&index=69
+//https://web.archive.org/web/20071026090003/http://www.brucemo.com/compchess/programming/index.htm
 import { Chess } from "./chess.js"
 import {PST} from "./pieceSquareTable.js"
 
@@ -16,12 +15,45 @@ const MVV_LVA = { //Most Valuable Victim - Least Valuable Aggressor
 }
 const PIECE_VALUE = {p : 100,n : 320,b : 330,r : 500,q : 900}
 const MAX_PLY = 64
-const LMR = {fullDepthMove : 3}
+const LMR = {fullDepthMove : 1}
 const NULLMOVE = {R:1}
 const ASPIRATION_WINDOW = 50
-
-var searchInfo = {}
 const PIECE = ["wp","wn","wb","wr","wq","wk","bp","bn","bb","br","bq","bk"]
+const HASH_F = {EXACT:0,ALPHA:1,BETA:2}
+
+function tagHASHE(key=0,depth=0,flag=0,score=0,move="",hashKey=0) {
+    return {
+        key: key,
+        depth: depth,
+        flag: flag,
+        score: score,
+        move: move,
+        hashKey: hashKey
+    }
+}
+
+const NO_HASH_ENTRY = 100000
+// 16Mb default hash table size
+var hashEntries = 838860
+
+var hashTable = new Array(hashEntries)
+
+// clear TT (hash table)
+function initHashTable() {
+    // loop over TT elements
+    for (var index = 0; index < hashEntries; index++) {
+        // reset TT inner fields
+        hashTable[index] = {
+            hashKey: 0,
+            depth: 0,
+            flag: 0,
+            score: 0,
+            bestMove: 0
+        }
+    }
+}
+initHashTable()
+var searchInfo = {}
 // random keys
 // pieceKeys es un array de cada tipo de pieza de cada color
 // que contiene un array para cada casilla del tablero por cada una.
@@ -54,7 +86,7 @@ initRandomKeys()
 // generate hash key
 function generateHashKey(game) {
     var pieceList = [].concat(...game.board()).filter(piece => piece != null)
-    var finalKey = 0;
+    var finalKey = 0
     // hash board position
     pieceList.forEach(p => {
         finalKey ^= pieceKeys[PIECE.indexOf(p.color + p.type)][PST.position.indexOf(p.square)]
@@ -81,6 +113,32 @@ function generateHashKey(game) {
     //if (enpassant != noEnpassant) finalKey ^= pieceKeys[enpassant];
     //finalKey ^= castleKeys[castle];
     return finalKey;
+}
+
+function readHashEntry(hashKey,alpha,beta,depth) {
+    var hashEntry = hashTable[(hashKey & 0x7fffffff) % hashEntries]
+    // match hash key
+    if (hashEntry.hashKey == hashKey) {
+        if (hashEntry.depth >= depth) {
+            // init score
+            var score = hashEntry.score
+            // match hash flag
+            if (hashEntry.flag == HASH_F.EXACT) return score
+            if (hashEntry.flag == HASH_F.ALPHA && (score <= alpha)) return alpha
+            if (hashEntry.flag == HASH_F.BETA && (score >= beta)) return beta
+        }
+    }
+    // if hash entry doesn't exist
+    return NO_HASH_ENTRY
+}
+
+function writeHashEntry(hashKey,score, depth, flag) {
+    // init hash entry
+    var hashEntry = hashTable[(hashKey & 0x7fffffff) % hashEntries]
+    hashEntry.hashKey = hashKey
+    hashEntry.score = score
+    hashEntry.flag = flag
+    hashEntry.depth = depth
 }
 
 function is_lmr_ok(move, incheck) {
@@ -127,7 +185,6 @@ function storePV(move) {
     // escribe el actual pv
     var ply = searchInfo.ply
     searchInfo.pvTable[searchInfo.ply][searchInfo.ply] = move.san
-    //if (ply == 0) { console.log("new pv move:", move.san)}
     // escribimos desde la capa mas profunda hasta la actual
     for (var nextPly=ply+1;nextPly< searchInfo.pvLength[ply+1];nextPly++) {
         searchInfo.pvTable[ply][nextPly] = searchInfo.pvTable[ply+1][nextPly]
@@ -197,7 +254,6 @@ function valueMove(move, color) {
             } else { // movimientos remanentes
                 return MVV_LVA.none[move.piece]
             }
-            return 
         }
     }
 }
@@ -236,8 +292,16 @@ function quiesce(game, color, alpha, beta) {
 function negamax(game, depth, color, alpha, beta) {
     // Inicializa PV Length
     searchInfo.pvLength[searchInfo.ply] = searchInfo.ply
+    var hashFlag = HASH_F.ALPHA
+    var score = readHashEntry(generateHashKey(game),alpha,beta,depth)
+    if (score != NO_HASH_ENTRY) {
+        //console.log(score)
+        return score
+    }
     if (depth == 0 || game.game_over() || searchInfo.ply > MAX_PLY-1) {
-        return quiesce(game,color,alpha,beta)
+        var val = quiesce(game,color,alpha,beta)
+        writeHashEntry(generateHashKey(game),val,depth,HASH_F.EXACT)
+        return val
     }
     var moves = game.moves({verbose:true})
     if (searchInfo.followPV) {
@@ -245,8 +309,10 @@ function negamax(game, depth, color, alpha, beta) {
     }
     var moves = sortMoves(moves, color)
     //Null Move
-    var score = nullMove(game.in_check(),depth,game.fen(),color,beta)
+    score = nullMove(game.in_check(),depth,game.fen(),color,beta)
     if (score >= beta) {
+        //probando
+        writeHashEntry(generateHashKey(game),beta,depth,HASH_F.BETA)
         return beta
     }
     var movesSearched = 0
@@ -256,12 +322,8 @@ function negamax(game, depth, color, alpha, beta) {
         // Late Move Reduction LMR
         var PVReduction = depth-1
         var nonPVReduction = Math.floor(depth*0.66667)
-        if (movesSearched >= LMR.fullDepthMove &&
-            is_lmr_ok(move, game.in_check())) {
+        if (movesSearched >= LMR.fullDepthMove && is_lmr_ok(move, game.in_check())) {
             score = -negamax(game, nonPVReduction,-color,-beta,-alpha)
-            /*if (score > alpha) {
-                score = -negamax(game,PVReduction,-color, -beta, -alpha)
-            }*/
         } else {
             //Research normal Negamax
             score = -negamax(game,PVReduction,-color, -beta, -alpha)
@@ -271,6 +333,7 @@ function negamax(game, depth, color, alpha, beta) {
         if (score >= beta) {
             // beta cut-off
             storeKillerMove(move)
+            writeHashEntry(generateHashKey(game),beta,depth,HASH_F.BETA)
             return beta
         }
         if (score > alpha) {
@@ -279,8 +342,10 @@ function negamax(game, depth, color, alpha, beta) {
             alpha = score
             // Escribimos el PV
             storePV(move)
+            hashFlag = HASH_F.EXACT
         }
     }
+    writeHashEntry(generateHashKey(game),alpha,depth,hashFlag)
     return alpha
 }
 
@@ -315,31 +380,31 @@ function evaluate(game, color) {
     }
     searchInfo.phase = phase
     if (game.in_checkmate()) {
-        return 5000 * color
+        if (game.turn() == "w") {
+            return -5000 + searchInfo.ply
+        } else {
+            return 5000 - searchInfo.ply
+        }
     } else if(game.in_draw() || game.in_stalemate() || game.in_threefold_repetition()) {
         return 0
     }
     //evaluate += mobility(game)
-    //generateHashKey(game)
-    //console.log(generateHashKey(game), evaluate*color)
     return evaluate * color
 }
 
-/*function mobility(game) {
+function mobility(game) {
     var white = new Chess(game.fen().replace(" b ", " w ")).moves().length
     var black = new Chess(game.fen().replace(" w ", " b ")).moves().length
     return (white-black) * 5
-}*/
+}
 
 function adjustMaterial(move, color) {
     var value = 0
     if (move.captured != null) {
-        //console.log(PIECE_VALUE[move.captured.toLowerCase()] * color, "captured")
         value -= PIECE_VALUE[move.captured.toLowerCase()] * color
     }
     if (move.promotion != null) {
         value += (PIECE_VALUE[move.promotion.toLowerCase()] - PIECE_VALUE.p) * color
-        //console.log((PIECE_VALUE[move.promotion] - PIECE_VALUE[move.p]) * color, "promotion")
     }
     return value
 }
@@ -405,14 +470,13 @@ export function nicarao(game,depth,color) {
     console.time("time")
     var fen = game.fen()
     setSearchInfo(fen)
-    //console.log(generateHashKey(game))
     //Iterative Deepening + Aspiration Windows
     var score = 0
     var bestmove = ""
     var infinity = 10000
     var alpha = -infinity
     var beta = infinity
-    for (var currentDepth=1;currentDepth < depth;currentDepth++){
+    for (var currentDepth=1;currentDepth <= depth;currentDepth++){
         searchInfo.followPV = true
         score = negamax(game,currentDepth,color,alpha, beta)
         if (score <= alpha || score >= beta) {
@@ -421,7 +485,6 @@ export function nicarao(game,depth,color) {
         }
         alpha = score - ASPIRATION_WINDOW
         beta = score + ASPIRATION_WINDOW
-
         console.log("cp:",score,
             "depth:",currentDepth,
             "nodes:", searchInfo.nodes,
