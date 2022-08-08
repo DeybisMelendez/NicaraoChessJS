@@ -18,7 +18,70 @@ const PIECE_VALUE = {p : 100,n : 320,b : 330,r : 500,q : 900}
 const MAX_PLY = 64
 const LMR = {fullDepthMove : 3}
 const NULLMOVE = {R:1}
+const ASPIRATION_WINDOW = 50
+
 var searchInfo = {}
+const PIECE = ["wp","wn","wb","wr","wq","wk","bp","bn","bb","br","bq","bk"]
+// random keys
+// pieceKeys es un array de cada tipo de pieza de cada color
+// que contiene un array para cada casilla del tablero por cada una.
+var pieceKeys = new Array(12).fill().map(() => new Array(64).fill())
+// Contiene un array por cada combinación de enroques disponibles (4x4=16)
+var castleKeys = new Array(16)
+// un array para cada casilla del tablero para las capturas al paso.
+var enpassantKeys = new Array(64)
+// un numero aleatorio por el lado que juega
+var sideKey = 0
+
+var randomState = 1804289383
+function random() {
+    var number = randomState
+    // 32-bit XOR shift
+    number ^= number << 13
+    number ^= number >> 17
+    number ^= number << 5
+    randomState = number
+    return number
+}
+// init random hash keys
+function initRandomKeys() {
+    for (var i=0;i<pieceKeys.length;i++){for (var j=0;j<pieceKeys[i].length;j++){pieceKeys[i][j]=random()}}
+    for (var i=0;i<castleKeys.length;i++){castleKeys[i] = random()}
+    for (var i=0;i<enpassantKeys.length;i++){enpassantKeys[i] = random()}
+    sideKey = random()
+}
+initRandomKeys()
+// generate hash key
+function generateHashKey(game) {
+    var pieceList = [].concat(...game.board()).filter(piece => piece != null)
+    var finalKey = 0;
+    // hash board position
+    pieceList.forEach(p => {
+        finalKey ^= pieceKeys[PIECE.indexOf(p.color + p.type)][PST.position.indexOf(p.square)]
+    })
+    // hash board state variables
+    if (game.turn() == "w") {finalKey ^= sideKey}
+    var fen = game.fen().split(" ")
+    var isEnpassant = fen[3]
+    if (isEnpassant.includes("-")) {finalKey ^= enpassantKeys[PST.position.indexOf(isEnpassant)]}
+    var castle = fen[2]
+    var castleID = 0
+    for (var i=0; i<castle.length;i++) {
+        switch (castle[i]) {
+            case "K": {castleID += 1}
+            case "Q": {castleID += 2}
+            case "k": {castleID += 4}
+            case "q": {castleID += 8}
+            case "-": break
+        }
+    }
+    if (castleID != 0 || castle == "-") {
+        finalKey ^= castleKeys[castleID]
+    }
+    //if (enpassant != noEnpassant) finalKey ^= pieceKeys[enpassant];
+    //finalKey ^= castleKeys[castle];
+    return finalKey;
+}
 
 function is_lmr_ok(move, incheck) {
     var isNotCapture = move.captured == null
@@ -41,7 +104,7 @@ function setSearchInfo(fen) {
         //Sorting PV move
         followPV : false,
         scorePV : false,
-        phase : ""
+        phase : "",
     }
 }
 
@@ -55,7 +118,7 @@ function storeKillerMove(move) {
 
 function storeHistoryMove(move, color, depth) {
     if (move.captured != null) {
-        searchInfo.historyMoves[color][PST.piece.indexOf(move.piece.toLowerCase())][PST.position.indexOf(move.to)] += depth*depth
+        searchInfo.historyMoves[color][PST.piece.indexOf(move.piece)][PST.position.indexOf(move.to)] += depth*depth
     }
 }
 
@@ -114,25 +177,25 @@ function valueMove(move, color) {
     //MVV-LVA
     if (move.san.charAt(move.san.length-1) == "+" || move.san.charAt(move.san.length-1) == "#") {
         //ataque al rey
-        return MVV_LVA.k[move.piece.toLowerCase()]
+        return MVV_LVA.k[move.piece]
     } else if (move.captured != null) {
         //valora captura de piezas
-        return MVV_LVA[move.captured.toLowerCase()][move.piece.toLowerCase()]
+        return MVV_LVA[move.captured][move.piece]
     } else {//jugadas tranquilas Quiescence
         //killer move
         var km = searchInfo.killerMoves
         var ply = searchInfo.ply
         if (km[0][ply] == move.san) {
-            return MVV_LVA.none[move.piece.toLowerCase()] + 1000
+            return MVV_LVA.none[move.piece] + 1000
         } else if (km[1][ply] == move.san) {
-            return MVV_LVA.none[move.piece.toLowerCase()] + 900
+            return MVV_LVA.none[move.piece] + 900
         } else {
             // history move
-            var historyMove = searchInfo.historyMoves[color][PST.piece.indexOf(move.piece.toLowerCase())][PST.position.indexOf(move.to)]
+            var historyMove = searchInfo.historyMoves[color][PST.piece.indexOf(move.piece)][PST.position.indexOf(move.to)]
             if (historyMove != 0) {
                 return historyMove
             } else { // movimientos remanentes
-                return MVV_LVA.none[move.piece.toLowerCase()]
+                return MVV_LVA.none[move.piece]
             }
             return 
         }
@@ -257,6 +320,8 @@ function evaluate(game, color) {
         return 0
     }
     //evaluate += mobility(game)
+    //generateHashKey(game)
+    //console.log(generateHashKey(game), evaluate*color)
     return evaluate * color
 }
 
@@ -336,17 +401,28 @@ function pstBonus(phase, pieceList) {
     return white - black
 }
 
-export function nicarao(game,depth,color, alpha, beta) {
+export function nicarao(game,depth,color) {
     console.time("time")
     var fen = game.fen()
     setSearchInfo(fen)
-    //Iterative Deepening
+    //console.log(generateHashKey(game))
+    //Iterative Deepening + Aspiration Windows
     var score = 0
     var bestmove = ""
-    for (var currentDepth=1;currentDepth <= depth;currentDepth++){
+    var infinity = 10000
+    var alpha = -infinity
+    var beta = infinity
+    for (var currentDepth=1;currentDepth < depth;currentDepth++){
         searchInfo.followPV = true
-        score = negamax(game,currentDepth,color,-beta, -alpha)
-            console.log("cp:",score,
+        score = negamax(game,currentDepth,color,alpha, beta)
+        if (score <= alpha || score >= beta) {
+            alpha = -infinity
+            beta = infinity
+        }
+        alpha = score - ASPIRATION_WINDOW
+        beta = score + ASPIRATION_WINDOW
+
+        console.log("cp:",score,
             "depth:",currentDepth,
             "nodes:", searchInfo.nodes,
             "material:", searchInfo.material,

@@ -59,7 +59,7 @@ var gameturn = -1
 var gamedepth = 5
 
 function nicaraoMove(turn, depth) {
-    var bestmove = nicarao(game,depth,turn,-10000,10000, game.history({verbose:true}))
+    var bestmove = nicarao(game,depth,turn)
     game.move(bestmove)
     board.position(game.fen())
     pgn.innerHTML = "PGN: " + game.pgn()
