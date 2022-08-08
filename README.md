@@ -11,6 +11,7 @@
 
 - Negamax + Alpha Beta pruning
 - Iterative Deepening
+- Aspiration Windows
 
 - Move Ordering:
     - PV-Move
