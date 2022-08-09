@@ -56,7 +56,7 @@ function playblack() {
 }
 
 var gameturn = -1
-var gamedepth = 5
+var gamedepth = 3
 
 function nicaraoMove(turn, depth) {
     var bestmove = nicarao(game,depth,turn)

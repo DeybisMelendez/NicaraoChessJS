@@ -13,24 +13,12 @@ const MVV_LVA = { //Most Valuable Victim - Least Valuable Aggressor
     p : {k:100,q:110,r:120,b:130,n:140,p:150},
     none : {k:10,q:20,r:30,b:40,n:50,p:60}
 }
-const PIECE_VALUE = {p : 100,n : 320,b : 330,r : 500,q : 900}
 const MAX_PLY = 64
 const LMR = {fullDepthMove : 1}
 const NULLMOVE = {R:1}
 const ASPIRATION_WINDOW = 50
 const PIECE = ["wp","wn","wb","wr","wq","wk","bp","bn","bb","br","bq","bk"]
 const HASH_F = {EXACT:0,ALPHA:1,BETA:2}
-
-function tagHASHE(key=0,depth=0,flag=0,score=0,move="",hashKey=0) {
-    return {
-        key: key,
-        depth: depth,
-        flag: flag,
-        score: score,
-        move: move,
-        hashKey: hashKey
-    }
-}
 
 const NO_HASH_ENTRY = 100000
 // 16Mb default hash table size
@@ -154,7 +142,8 @@ function setSearchInfo(fen) {
         ply : 0,
         killerMoves : killerMoves, //2x64 bidimensional
         historyMoves : {"1":historyMoves,"-1":historyMoves.slice()}, //12x64 bidimensional
-        material : valueMaterial(fen),
+        materialMG : 0,
+        materialEG : 0,
         nodes : 0,
         //Triangular PV-Table
         pvLength : new Array(MAX_PLY),
@@ -164,6 +153,7 @@ function setSearchInfo(fen) {
         scorePV : false,
         phase : "",
     }
+    valueMaterial(fen)
 }
 
 function storeKillerMove(move) {
@@ -295,7 +285,6 @@ function negamax(game, depth, color, alpha, beta) {
     var hashFlag = HASH_F.ALPHA
     var score = readHashEntry(generateHashKey(game),alpha,beta,depth)
     if (score != NO_HASH_ENTRY) {
-        //console.log(score)
         return score
     }
     if (depth == 0 || game.game_over() || searchInfo.ply > MAX_PLY-1) {
@@ -352,39 +341,36 @@ function negamax(game, depth, color, alpha, beta) {
 function make(game, move, color) {
     game.move(move.san)
     searchInfo.ply++
-    searchInfo.material -= adjustMaterial(move,color)
+    adjustMaterial(move,color, true)
     searchInfo.nodes++
 }
 
 function unmake(game, move,color) {
     searchInfo.ply--
-    searchInfo.material += adjustMaterial(move,color)
+    adjustMaterial(move,color, false)
     game.undo()
 }
 
 function evaluate(game, color) {
     var evaluate = 0
     var pieceList = [].concat(...game.board()).filter(piece => piece != null)
-    evaluate += searchInfo.material
     // Game Phase
     var phase = "mg"
     var minorPieces = pieceList.filter(piece => piece.type == "n" || piece.type == "b" || piece.type == "r")
     var queensCount = pieceList.filter(piece => piece.type == "q").length
-    if ( queensCount == 0 || minorPieces.length <= 4 && queensCount > 0) {
+    if (queensCount == 0 || minorPieces.length <= 4 && queensCount > 0) {
         phase = "eg"
-    }
-    if (phase == "mg") {
-        evaluate += pstBonus("mg", pieceList)
+        evaluate += searchInfo.materialEG
     } else {
-        evaluate += pstBonus("eg", pieceList)
+        evaluate += searchInfo.materialMG
     }
+    evaluate += pstBonus(phase, pieceList)
     searchInfo.phase = phase
     if (game.in_checkmate()) {
         if (game.turn() == "w") {
-            return -5000 + searchInfo.ply
-        } else {
             return 5000 - searchInfo.ply
         }
+        return -5000 + searchInfo.ply
     } else if(game.in_draw() || game.in_stalemate() || game.in_threefold_repetition()) {
         return 0
     }
@@ -392,59 +378,84 @@ function evaluate(game, color) {
     return evaluate * color
 }
 
-function mobility(game) {
+/*function mobility(game) {
     var white = new Chess(game.fen().replace(" b ", " w ")).moves().length
     var black = new Chess(game.fen().replace(" w ", " b ")).moves().length
     return (white-black) * 5
-}
+}*/
 
-function adjustMaterial(move, color) {
-    var value = 0
+function adjustMaterial(move, color, add) {
     if (move.captured != null) {
-        value -= PIECE_VALUE[move.captured.toLowerCase()] * color
+        if (add) {
+            searchInfo.materialMG += PST.pieceValueMG[move.captured] * color
+            searchInfo.materialEG += PST.pieceValueEG[move.captured] * color
+        } else {
+            searchInfo.materialMG -= PST.pieceValueMG[move.captured] * color
+            searchInfo.materialEG -= PST.pieceValueEG[move.captured] * color
+        }
+        
+        //value -= PIECE_VALUE[move.captured.toLowerCase()] * color
     }
     if (move.promotion != null) {
-        value += (PIECE_VALUE[move.promotion.toLowerCase()] - PIECE_VALUE.p) * color
+        if (add) {
+            searchInfo.materialEG += (PST.pieceValueEG[move.promotion] - PST.pieceValueEG.p) * color
+            searchInfo.materialMG += (PST.pieceValueMG[move.promotion] - PST.pieceValueMG.p) * color
+        } else {
+            searchInfo.materialEG -= (PST.pieceValueEG[move.promotion] - PST.pieceValueEG.p) * color
+            searchInfo.materialMG -= (PST.pieceValueMG[move.promotion] - PST.pieceValueMG.p) * color
+        }
+        
+        //value += (PIECE_VALUE[move.promotion.toLowerCase()] - PIECE_VALUE.p) * color
     }
-    return value
 }
 
 function valueMaterial(fen) {
-    var material = 0
+    searchInfo.materialEG = 0
+    searchInfo.materialMG = 0
     for (var i = 0; i < fen.length; i++) {
         switch (fen[i]) {
             case "P":
-                material += PIECE_VALUE.p
+                searchInfo.materialMG += PST.pieceValueMG.p
+                searchInfo.materialEG += PST.pieceValueEG.p
                 break
             case "N":
-                material += PIECE_VALUE.n
+                searchInfo.materialMG += PST.pieceValueMG.n
+                searchInfo.materialEG += PST.pieceValueEG.n
                 break
             case "B":
-                material += PIECE_VALUE.b
+                searchInfo.materialMG += PST.pieceValueMG.b
+                searchInfo.materialEG += PST.pieceValueEG.b
                 break
             case "R":
-                material += PIECE_VALUE.r
+                searchInfo.materialMG += PST.pieceValueMG.r
+                searchInfo.materialEG += PST.pieceValueEG.r
                 break
             case "Q":
-                material += PIECE_VALUE.q
+                searchInfo.materialMG += PST.pieceValueMG.q
+                searchInfo.materialEG += PST.pieceValueEG.q
                 break
             case "p":
-                material -= PIECE_VALUE.p
+                searchInfo.materialMG -= PST.pieceValueMG.p
+                searchInfo.materialEG -= PST.pieceValueEG.p
                 break
             case "n":
-                material -= PIECE_VALUE.n
+                searchInfo.materialMG -= PST.pieceValueMG.n
+                searchInfo.materialEG -= PST.pieceValueEG.n
                 break
             case "b":
-                material -= PIECE_VALUE.b
+                searchInfo.materialMG -= PST.pieceValueMG.b
+                searchInfo.materialEG -= PST.pieceValueEG.b
                 break
             case "r":
-                material -= PIECE_VALUE.r
+                searchInfo.materialMG -= PST.pieceValueMG.r
+                searchInfo.materialEG -= PST.pieceValueEG.r
                 break
             case "q":
-                material -= PIECE_VALUE.q
+                searchInfo.materialMG -= PST.pieceValueMG.q
+                searchInfo.materialEG -= PST.pieceValueEG.q
                 break
             case " ":
-                return material
+                return
         }
     }
 }
@@ -470,6 +481,7 @@ export function nicarao(game,depth,color) {
     console.time("time")
     var fen = game.fen()
     setSearchInfo(fen)
+    initHashTable()
     //Iterative Deepening + Aspiration Windows
     var score = 0
     var bestmove = ""
@@ -477,6 +489,7 @@ export function nicarao(game,depth,color) {
     var alpha = -infinity
     var beta = infinity
     for (var currentDepth=1;currentDepth <= depth;currentDepth++){
+        valueMaterial(fen)
         searchInfo.followPV = true
         score = negamax(game,currentDepth,color,alpha, beta)
         if (score <= alpha || score >= beta) {
@@ -488,7 +501,7 @@ export function nicarao(game,depth,color) {
         console.log("cp:",score,
             "depth:",currentDepth,
             "nodes:", searchInfo.nodes,
-            "material:", searchInfo.material,
+            "material:", searchInfo.materialMG,searchInfo.materialEG,
             "phase", searchInfo.phase,
             "pv:", searchInfo.pvTable[0].filter(move=>move!=null),
         )
