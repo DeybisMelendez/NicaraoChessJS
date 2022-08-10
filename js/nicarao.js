@@ -202,7 +202,7 @@ function nullMove(inCheck,depth, fen, color, beta) { // TODO
             fen = fen.replace(" w ", " b ")
         }
         var copyBoard = new Chess(fen)
-        score = -negamax(copyBoard,depth-1-NULLMOVE.R,-color,-beta,-beta+1)
+        var score = -negamax(copyBoard,depth-1-NULLMOVE.R,-color,-beta,-beta+1)
         if (score >= beta) {
             return beta
         }
