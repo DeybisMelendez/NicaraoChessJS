@@ -1,4 +1,5 @@
 //https://web.archive.org/web/20071026090003/http://www.brucemo.com/compchess/programming/index.htm
+// TODO Problema con NullMove y Aspiration Windows
 import { Chess } from "./chess.js"
 import {PST} from "./pieceSquareTable.js"
 
@@ -216,7 +217,7 @@ function valueMove(move, color) {
     // Piece Capture : 150-500
     // History Move : depth*depth
     // Left : 10-60
-    if (move.san.charAt(move.san.length-1) == "#") {
+    if (move.san.includes("#")) {
         return MATE_SCORE
     }
     //PV Move
@@ -268,9 +269,9 @@ function quiesce(game, color, alpha, beta) {
         return beta
     }
     alpha = Math.max(alpha, standPat)
-    var captures = game.moves({verbose:true, legal:true}).filter(move => move.captured != null  && move.captured != "k")
-    captures.sort((a,b) => MVV_LVA[b.captured][b.piece] - MVV_LVA[a.captured][a.piece])
-    var score = -10000
+    var captures = game.moves({verbose:true, legal:true}).filter(move => move.captured != null || move.san.includes("#") || move.san.includes("+"))
+    captures.sort((a,b) => MVV_LVA[b.captured || "k"][b.piece] - MVV_LVA[a.captured || "k"][a.piece])
+    var score = 0
     for (var i=0; i<captures.length;i++) {
         var move = captures[i]
         make(game, move, color)
@@ -285,36 +286,30 @@ function quiesce(game, color, alpha, beta) {
 }
 // Negamax + Alpha beta + LMR
 function negamax(game, depth, color, alpha, beta) {
-    //Mate Score
-    searchInfo.mate--
-    if (game.in_checkmate()) {
-        return -searchInfo.mate
-    }
     // Inicializa PV Length
     searchInfo.pvLength[searchInfo.ply] = searchInfo.ply
     var hashFlag = HASH_F.ALPHA
     var score = -10000
-    /*if (score = readHashEntry(generateHashKey(game),alpha,beta,depth) != NO_HASH_ENTRY) {
+    if (score = readHashEntry(generateHashKey(game),alpha,beta,depth) != NO_HASH_ENTRY) {
         return score
-    }*/
+    }
     if (depth == 0 || game.game_over() || searchInfo.ply > MAX_PLY-1) {
         var val = quiesce(game,color,alpha,beta)
         //var val = evaluate(game,color)
         writeHashEntry(generateHashKey(game),val,depth,HASH_F.EXACT)
         return val
     }
-    var moves = game.moves({verbose:true, legal:true}).filter(move => move.captured != "k")
+    var moves = game.moves({verbose:true, legal:true})//.filter(move => move.captured != "k")
     if (searchInfo.followPV) {
         enablePVScoring(moves)
     }
     var moves = sortMoves(moves, color)
-    //Null Move
-    var nullScore = nullMove(game.in_check(),depth,game.fen(),color,beta)
+    //Null Move No funciona correctamente, no permite encontrar jaque mate
+    /*var nullScore = nullMove(game.in_check(),depth,game.fen(),color,beta)
     if (nullScore >= beta) {
         //probando
-        //writeHashEntry(generateHashKey(game),beta,depth,HASH_F.BETA)
         return beta
-    }
+    }*/
     var movesSearched = 0
     for (var i=0; i < moves.length;i++) {
         var move = moves[i]
@@ -323,19 +318,13 @@ function negamax(game, depth, color, alpha, beta) {
         var PVReduction = depth-1
         var nonPVReduction = Math.floor(depth*0.66667)
         if (movesSearched >= LMR.fullDepthMove && is_lmr_ok(move, game.in_check())) {
-            score = -negamax(game, nonPVReduction,-color,-beta,-alpha)
+            score = -negamax(game,nonPVReduction,-color,-beta,-alpha)
         } else {
             //Research normal Negamax
             score = -negamax(game,PVReduction,-color, -beta, -alpha)
         }
         movesSearched++ 
         unmake(game,move,color)
-        if (score >= beta) {
-            // beta cut-off
-            storeKillerMove(move)
-            writeHashEntry(generateHashKey(game),beta,depth,HASH_F.BETA)
-            return beta
-        }
         if (score > alpha) {
             //encontró un mejor movimiento
             storeHistoryMove(game,move,color, depth)
@@ -344,7 +333,15 @@ function negamax(game, depth, color, alpha, beta) {
             hashFlag = HASH_F.EXACT
             storePV(move)
         }
+        if (score >= beta) {
+            // beta cut-off
+            storeKillerMove(move)
+            writeHashEntry(generateHashKey(game),beta,depth,HASH_F.BETA)
+            return beta
+        }
     }
+    //Mate Score
+    searchInfo.mate--
     writeHashEntry(generateHashKey(game),alpha,depth,hashFlag)
     return alpha
 }
@@ -363,6 +360,11 @@ function unmake(game, move,color) {
 }
 
 function evaluate(game, color) {
+    if (game.game_over()) {
+        if (game.in_checkmate()) {
+            return -searchInfo.mate
+        }
+    }
     var evaluate = 0
     var pieceList = [].concat(...game.board()).filter(piece => piece != null)
     // Game Phase
@@ -380,14 +382,8 @@ function evaluate(game, color) {
     return evaluate * color
 }
 
-/*function mobility(game) {
-    var white = new Chess(game.fen().replace(" b ", " w ")).moves().length
-    var black = new Chess(game.fen().replace(" w ", " b ")).moves().length
-    return (white-black) * 5
-}*/
-
 function adjustMaterial(move, color, add) {
-    if (move.captured != null) {
+    if (move.captured != null && move.captured != "k") {
         if (add) {
             searchInfo.materialMG += PST.pieceValueMG[move.captured] * color
             searchInfo.materialEG += PST.pieceValueEG[move.captured] * color
@@ -487,11 +483,13 @@ export function nicarao(game,depth,color) {
     var alpha = -infinity
     var beta = infinity
     for (var currentDepth=1;currentDepth <= depth;currentDepth++){
+        // break si encuentra jaque mate forzado
+        if (searchInfo.pvTable[0].filter(x=>x.includes("#")).length > 0) {
+            break
+        }
         valueMaterial(fen)
         searchInfo.followPV = true
         searchInfo.mate = MATE_SCORE
-        //alpha = -infinity
-        //beta = infinity
         score = negamax(game,currentDepth,color,alpha, beta)
         // ASPIRATION WINDOWS Revisar por qué omite jugadas de jaque mate en tacticas
         /*if (score <= alpha || score >= beta) {
