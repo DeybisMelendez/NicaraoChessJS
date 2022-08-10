@@ -1,5 +1,3 @@
-//TODO https://www.youtube.com/watch?v=1LmdOHshYkI&list=PLmN0neTso3Jxh8ZIylk74JpwfiWNI76Cs&index=64
-// https://www.youtube.com/watch?v=5EMLgIFv5Qg&list=PLmN0neTso3Jxh8ZIylk74JpwfiWNI76Cs&index=69
 //https://web.archive.org/web/20071026090003/http://www.brucemo.com/compchess/programming/index.htm
 import { Chess } from "./chess.js"
 import {PST} from "./pieceSquareTable.js"
@@ -14,11 +12,12 @@ const MVV_LVA = { //Most Valuable Victim - Least Valuable Aggressor
     none : {k:10,q:20,r:30,b:40,n:50,p:60}
 }
 const MAX_PLY = 64
-const LMR = {fullDepthMove : 1}
+const LMR = {fullDepthMove : 6}
 const NULLMOVE = {R:1}
 const ASPIRATION_WINDOW = 50
 const PIECE = ["wp","wn","wb","wr","wq","wk","bp","bn","bb","br","bq","bk"]
 const HASH_F = {EXACT:0,ALPHA:1,BETA:2}
+const MATE_SCORE = 5000
 
 const NO_HASH_ENTRY = 100000
 // 16Mb default hash table size
@@ -98,8 +97,6 @@ function generateHashKey(game) {
     if (castleID != 0 || castle == "-") {
         finalKey ^= castleKeys[castleID]
     }
-    //if (enpassant != noEnpassant) finalKey ^= pieceKeys[enpassant];
-    //finalKey ^= castleKeys[castle];
     return finalKey;
 }
 
@@ -108,6 +105,8 @@ function readHashEntry(hashKey,alpha,beta,depth) {
     // match hash key
     if (hashEntry.hashKey == hashKey) {
         if (hashEntry.depth >= depth) {
+            if (score < -searchInfo.mate) score += searchInfo.ply
+            if (score > searchInfo.mate) score -= searchInfo.ply
             // init score
             var score = hashEntry.score
             // match hash flag
@@ -121,6 +120,8 @@ function readHashEntry(hashKey,alpha,beta,depth) {
 }
 
 function writeHashEntry(hashKey,score, depth, flag) {
+    if (score < -searchInfo.mate) score -= searchInfo.ply
+    if (score > searchInfo.mate) score += searchInfo.ply
     // init hash entry
     var hashEntry = hashTable[(hashKey & 0x7fffffff) % hashEntries]
     hashEntry.hashKey = hashKey
@@ -152,6 +153,7 @@ function setSearchInfo(fen) {
         followPV : false,
         scorePV : false,
         phase : "",
+        mate : MATE_SCORE
     }
     valueMaterial(fen)
 }
@@ -207,13 +209,16 @@ function nullMove(inCheck,depth, fen, color, beta) { // TODO
 
 function valueMove(move, color) {
     // Orden
+    // Mate : 5000
     // PV Move : 2000
     // Killer Moves : 910-1060
     // King Attacks (+,#) : 600-640
     // Piece Capture : 150-500
     // History Move : depth*depth
     // Left : 10-60
-
+    if (move.san.charAt(move.san.length-1) == "#") {
+        return MATE_SCORE
+    }
     //PV Move
     if (searchInfo.scorePV) {
         if (searchInfo.pvTable[searchInfo.ply][searchInfo.ply] == move.san) {
@@ -222,7 +227,7 @@ function valueMove(move, color) {
         }
     }
     //MVV-LVA
-    if (move.san.charAt(move.san.length-1) == "+" || move.san.charAt(move.san.length-1) == "#") {
+    if (move.san.charAt(move.san.length-1) == "+") {
         //ataque al rey
         return MVV_LVA.k[move.piece]
     } else if (move.captured != null) {
@@ -263,7 +268,7 @@ function quiesce(game, color, alpha, beta) {
         return beta
     }
     alpha = Math.max(alpha, standPat)
-    var captures = game.moves({verbose:true}).filter(move => move.captured != null)
+    var captures = game.moves({verbose:true, legal:true}).filter(move => move.captured != null  && move.captured != "k")
     captures.sort((a,b) => MVV_LVA[b.captured][b.piece] - MVV_LVA[a.captured][a.piece])
     var score = -10000
     for (var i=0; i<captures.length;i++) {
@@ -280,28 +285,34 @@ function quiesce(game, color, alpha, beta) {
 }
 // Negamax + Alpha beta + LMR
 function negamax(game, depth, color, alpha, beta) {
+    //Mate Score
+    searchInfo.mate--
+    if (game.in_checkmate()) {
+        return -searchInfo.mate
+    }
     // Inicializa PV Length
     searchInfo.pvLength[searchInfo.ply] = searchInfo.ply
     var hashFlag = HASH_F.ALPHA
-    var score = readHashEntry(generateHashKey(game),alpha,beta,depth)
-    if (score != NO_HASH_ENTRY) {
+    var score = -10000
+    /*if (score = readHashEntry(generateHashKey(game),alpha,beta,depth) != NO_HASH_ENTRY) {
         return score
-    }
+    }*/
     if (depth == 0 || game.game_over() || searchInfo.ply > MAX_PLY-1) {
         var val = quiesce(game,color,alpha,beta)
+        //var val = evaluate(game,color)
         writeHashEntry(generateHashKey(game),val,depth,HASH_F.EXACT)
         return val
     }
-    var moves = game.moves({verbose:true})
+    var moves = game.moves({verbose:true, legal:true}).filter(move => move.captured != "k")
     if (searchInfo.followPV) {
         enablePVScoring(moves)
     }
     var moves = sortMoves(moves, color)
     //Null Move
-    score = nullMove(game.in_check(),depth,game.fen(),color,beta)
-    if (score >= beta) {
+    var nullScore = nullMove(game.in_check(),depth,game.fen(),color,beta)
+    if (nullScore >= beta) {
         //probando
-        writeHashEntry(generateHashKey(game),beta,depth,HASH_F.BETA)
+        //writeHashEntry(generateHashKey(game),beta,depth,HASH_F.BETA)
         return beta
     }
     var movesSearched = 0
@@ -330,8 +341,8 @@ function negamax(game, depth, color, alpha, beta) {
             storeHistoryMove(game,move,color, depth)
             alpha = score
             // Escribimos el PV
-            storePV(move)
             hashFlag = HASH_F.EXACT
+            storePV(move)
         }
     }
     writeHashEntry(generateHashKey(game),alpha,depth,hashFlag)
@@ -366,15 +377,6 @@ function evaluate(game, color) {
     }
     evaluate += pstBonus(phase, pieceList)
     searchInfo.phase = phase
-    if (game.in_checkmate()) {
-        if (game.turn() == "w") {
-            return 5000 - searchInfo.ply
-        }
-        return -5000 + searchInfo.ply
-    } else if(game.in_draw() || game.in_stalemate() || game.in_threefold_repetition()) {
-        return 0
-    }
-    //evaluate += mobility(game)
     return evaluate * color
 }
 
@@ -393,8 +395,6 @@ function adjustMaterial(move, color, add) {
             searchInfo.materialMG -= PST.pieceValueMG[move.captured] * color
             searchInfo.materialEG -= PST.pieceValueEG[move.captured] * color
         }
-        
-        //value -= PIECE_VALUE[move.captured.toLowerCase()] * color
     }
     if (move.promotion != null) {
         if (add) {
@@ -404,8 +404,6 @@ function adjustMaterial(move, color, add) {
             searchInfo.materialEG -= (PST.pieceValueEG[move.promotion] - PST.pieceValueEG.p) * color
             searchInfo.materialMG -= (PST.pieceValueMG[move.promotion] - PST.pieceValueMG.p) * color
         }
-        
-        //value += (PIECE_VALUE[move.promotion.toLowerCase()] - PIECE_VALUE.p) * color
     }
 }
 
@@ -491,13 +489,17 @@ export function nicarao(game,depth,color) {
     for (var currentDepth=1;currentDepth <= depth;currentDepth++){
         valueMaterial(fen)
         searchInfo.followPV = true
+        searchInfo.mate = MATE_SCORE
+        //alpha = -infinity
+        //beta = infinity
         score = negamax(game,currentDepth,color,alpha, beta)
-        if (score <= alpha || score >= beta) {
+        // ASPIRATION WINDOWS Revisar por qué omite jugadas de jaque mate en tacticas
+        /*if (score <= alpha || score >= beta) {
             alpha = -infinity
             beta = infinity
         }
         alpha = score - ASPIRATION_WINDOW
-        beta = score + ASPIRATION_WINDOW
+        beta = score + ASPIRATION_WINDOW*/
         console.log("cp:",score,
             "depth:",currentDepth,
             "nodes:", searchInfo.nodes,
