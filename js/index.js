@@ -56,7 +56,7 @@ function playblack() {
     //nicaraoMove(gameturn,gamedepth)
 }
 
-var gameturn = -1
+var gameturn = 1
 var gamedepth = 4
 
 function nicaraoMove(turn, depth) {
@@ -66,9 +66,3 @@ function nicaraoMove(turn, depth) {
     pgn.innerHTML = "PGN: " + game.pgn()
     //setTimeout(nicaraoMove,300,-turn,depth)
 }
-document.addEventListener("DOMContentLoaded",function(){
-    if (gameturn == 1) {
-        setTimeout(nicaraoMove,1000,gameturn,gamedepth)
-
-    }
-})

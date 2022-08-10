@@ -292,9 +292,9 @@ function negamax(game, depth, color, alpha, beta) {
     searchInfo.pvLength[searchInfo.ply] = searchInfo.ply
     var hashFlag = HASH_F.ALPHA
     var score = -10000
-    if (score = readHashEntry(generateHashKey(game),alpha,beta,depth) != NO_HASH_ENTRY) {
+    /*if (readHashEntry(generateHashKey(game),alpha,beta,depth) != NO_HASH_ENTRY) {
         return score
-    }
+    }*/
     if (depth == 0 || game.game_over() || searchInfo.ply > MAX_PLY-1) {
         var val = quiesce(game,color,alpha,beta)
         //var val = evaluate(game,color)
