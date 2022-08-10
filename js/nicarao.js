@@ -320,7 +320,10 @@ function negamax(game, depth, color, alpha, beta) {
         var PVReduction = depth-1
         var nonPVReduction = Math.floor(depth*0.66667)
         if (movesSearched >= LMR.fullDepthMove && is_lmr_ok(move, game.in_check())) {
-            score = -negamax(game,nonPVReduction,-color,-beta,-alpha)
+            score = -negamax(game,nonPVReduction,-color,-alpha-1,-alpha)
+            if (alpha < score && score < beta) {
+                score = -negamax(game,PVReduction,-color, -beta, -alpha)
+            }
         } else {
             //Research normal Negamax
             score = -negamax(game,PVReduction,-color, -beta, -alpha)
