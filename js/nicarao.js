@@ -298,7 +298,7 @@ function negamax(game, depth, color, alpha, beta) {
     if (depth == 0 || game.game_over() || searchInfo.ply > MAX_PLY-1) {
         var val = quiesce(game,color,alpha,beta)
         //var val = evaluate(game,color)
-        writeHashEntry(generateHashKey(game),val,depth,HASH_F.EXACT)
+        //writeHashEntry(generateHashKey(game),val,depth,HASH_F.EXACT)
         return val
     }
     var moves = game.moves({verbose:true, legal:true})//.filter(move => move.captured != "k")
@@ -338,13 +338,13 @@ function negamax(game, depth, color, alpha, beta) {
         if (score >= beta) {
             // beta cut-off
             storeKillerMove(move)
-            writeHashEntry(generateHashKey(game),beta,depth,HASH_F.BETA)
+            //writeHashEntry(generateHashKey(game),beta,depth,HASH_F.BETA)
             return beta
         }
     }
     //Mate Score
     searchInfo.mate--
-    writeHashEntry(generateHashKey(game),alpha,depth,hashFlag)
+    //writeHashEntry(generateHashKey(game),alpha,depth,hashFlag)
     return alpha
 }
 
@@ -487,7 +487,7 @@ export function nicarao(game,depth,color) {
     var time = new Date().getTime()
     for (var currentDepth=1;true;currentDepth++){
         var actualTime = new Date().getTime()
-        if (actualTime - time >= 1000) {
+        if (actualTime - time >= 1500) {
             break
         }
         // break si encuentra jaque mate forzado
