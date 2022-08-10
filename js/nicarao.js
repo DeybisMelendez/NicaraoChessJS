@@ -14,7 +14,7 @@ const MVV_LVA = { //Most Valuable Victim - Least Valuable Aggressor
 }
 const MAX_PLY = 64
 const LMR = {fullDepthMove : 6}
-const NULLMOVE = {R:1}
+const NULLMOVE = {R:2}
 const ASPIRATION_WINDOW = 50
 const PIECE = ["wp","wn","wb","wr","wq","wk","bp","bn","bb","br","bq","bk"]
 const HASH_F = {EXACT:0,ALPHA:1,BETA:2}
@@ -195,7 +195,6 @@ function enablePVScoring(moves) {
 }
 
 function nullMove(inCheck,depth, fen, color, beta) { // TODO
-    var score = -10000
     if (depth>= NULLMOVE.R+1 && !inCheck && searchInfo.ply > 0) {
         if (color == -1) {
             fen = fen.replace(" b ", " w ")
@@ -204,8 +203,11 @@ function nullMove(inCheck,depth, fen, color, beta) { // TODO
         }
         var copyBoard = new Chess(fen)
         score = -negamax(copyBoard,depth-1-NULLMOVE.R,-color,-beta,-beta+1)
+        if (score >= beta) {
+            return beta
+        }
     }
-    return score
+    return null
 }
 
 function valueMove(move, color) {
@@ -305,11 +307,11 @@ function negamax(game, depth, color, alpha, beta) {
     }
     var moves = sortMoves(moves, color)
     //Null Move No funciona correctamente, no permite encontrar jaque mate
-    /*var nullScore = nullMove(game.in_check(),depth,game.fen(),color,beta)
-    if (nullScore >= beta) {
+    var nullScore = nullMove(game.in_check(),depth,game.fen(),color,beta)
+    if (nullScore != null) {
         //probando
         return beta
-    }*/
+    }
     var movesSearched = 0
     for (var i=0; i < moves.length;i++) {
         var move = moves[i]
@@ -482,7 +484,12 @@ export function nicarao(game,depth,color) {
     var infinity = 10000
     var alpha = -infinity
     var beta = infinity
-    for (var currentDepth=1;currentDepth <= depth;currentDepth++){
+    var time = new Date().getTime()
+    for (var currentDepth=1;true;currentDepth++){
+        var actualTime = new Date().getTime()
+        if (actualTime - time >= 1000) {
+            break
+        }
         // break si encuentra jaque mate forzado
         if (searchInfo.pvTable[0].filter(x=>x.includes("#")).length > 0) {
             break

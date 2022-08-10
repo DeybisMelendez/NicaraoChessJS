@@ -1,7 +1,7 @@
 import {Chess} from "./chess.js"
 import {nicarao} from "./nicarao.js"
 var pgn = document.getElementById("pgn")
-var game = new Chess("5br1/pKn1P3/2Q5/3n4/2P1kP1N/1Npp1R2/r5B1/qb6 w - - 0 1")
+var game = new Chess()
 var config = {
     draggable: true,
     position: game.fen(),
@@ -46,18 +46,18 @@ document.getElementById("black").addEventListener("click", playblack)
 
 function playwhite() {
     gameturn = 1
-    nicaraoMove(gameturn,gamedepth)
     board.orientation("white")
+    nicaraoMove(gameturn,gamedepth)
 }
 
 function playblack() {
     gameturn = -1
-    board.orientation("white")
-    nicaraoMove(gameturn,gamedepth)
+    board.orientation("black")
+    //nicaraoMove(gameturn,gamedepth)
 }
 
 var gameturn = -1
-var gamedepth = 8
+var gamedepth = 4
 
 function nicaraoMove(turn, depth) {
     var bestmove = nicarao(game,depth,turn)
