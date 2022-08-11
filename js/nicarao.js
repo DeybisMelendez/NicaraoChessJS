@@ -1,5 +1,5 @@
 //https://web.archive.org/web/20071026090003/http://www.brucemo.com/compchess/programming/index.htm
-// TODO Problema con Tabla de transposicion y Aspiration Windows
+// TODO Problema con Aspiration Windows
 // TODO Añadir Regla de tarrash para el final "torres detras de peones pasados"
 import { Chess } from "./chess.js"
 import {PST} from "./pieceSquareTable.js"
@@ -195,6 +195,10 @@ function enablePVScoring(moves) {
 }
 
 function nullMove(inCheck,depth, fen, color, beta) { // TODO
+    var actualTime = Date.now()
+        if (actualTime - searchInfo.firstTime >= searchInfo.timeleft) {
+            return 0
+        }
     if (depth>= NULLMOVE.R+1 && !inCheck && searchInfo.ply > 0) {
         if (color == -1) {
             fen = fen.replace(" b ", " w ")
@@ -266,6 +270,10 @@ function sortMoves(moves,color) {
 }
 
 function quiesce(game, color, alpha, beta) {
+    var actualTime = Date.now()
+        if (actualTime - searchInfo.firstTime >= searchInfo.timeleft) {
+            return 0
+        }
     var standPat = evaluate(game, color)
     if (standPat >= beta) {
         return beta
@@ -288,17 +296,21 @@ function quiesce(game, color, alpha, beta) {
 }
 // Negamax + Alpha beta + LMR
 function negamax(game, depth, color, alpha, beta) {
+    var actualTime = new Date().getTime()
+    if (actualTime - searchInfo.firstTime >= searchInfo.timeleft) {
+        return 0
+    }
     // Inicializa PV Length
     searchInfo.pvLength[searchInfo.ply] = searchInfo.ply
     var hashFlag = HASH_F.ALPHA
-    var score = readHashEntry(generateHashKey(game),alpha,beta,depth)
+    var score = 0
+    score = readHashEntry(generateHashKey(game),alpha,beta,depth)
     if (score != NO_HASH_ENTRY && searchInfo.ply >0) {
         return score
     }
     if (depth == 0 || game.game_over() || searchInfo.ply > MAX_PLY-1) {
         var val = quiesce(game,color,alpha,beta)
         //var val = evaluate(game,color)
-        //writeHashEntry(generateHashKey(game),val,depth,HASH_F.EXACT)
         return val
     }
     var moves = game.moves({verbose:true, legal:true})//.filter(move => move.captured != "k")
@@ -309,16 +321,14 @@ function negamax(game, depth, color, alpha, beta) {
     //Null Move No funciona correctamente, no permite encontrar jaque mate
     var nullScore = nullMove(game.in_check(),depth,game.fen(),color,beta)
     if (nullScore != null) {
-        //probando
         return beta
     }
-    //var movesSearched = 0
     for (var i=0; i < moves.length;i++) {
         var move = moves[i]
         make(game,move,color)
         // Late Move Reduction LMR
-        var PVReduction = Math.floor(depth*0.6666666667)
         var nonPVReduction = depth-1
+        var PVReduction = Math.floor(depth*0.6666666667)
         if (i >= LMR.fullDepthMove && is_lmr_ok(move, game.in_check())) {
             score = -negamax(game,PVReduction,-color,-alpha-1,-alpha)
             if (score > alpha && score < beta) {
@@ -330,7 +340,6 @@ function negamax(game, depth, color, alpha, beta) {
             //Principal Variation Search Negamax
             score = -negamax(game,nonPVReduction,-color, -beta, -alpha)
         }
-        //movesSearched++ 
         unmake(game,move,color)
         if (score > alpha) {
             //encontró un mejor movimiento
@@ -367,6 +376,10 @@ function unmake(game, move,color) {
 }
 
 function evaluate(game, color) {
+    var actualTime = Date.now()
+        if (actualTime - searchInfo.firstTime >= searchInfo.timeleft) {
+            return 0
+        }
     if (game.game_over()) {
         if (game.in_checkmate()) {
             return -searchInfo.mate + searchInfo.ply
@@ -609,12 +622,9 @@ export function nicarao(game,timeleft,color) {
     var infinity = 10000
     var alpha = -infinity
     var beta = infinity
-    var firstTime = new Date().getTime()
+    searchInfo.firstTime = new Date().getTime()
+    searchInfo.timeleft = timeleft
     for (var currentDepth=1;true;currentDepth++){
-        var actualTime = new Date().getTime()
-        if (actualTime - firstTime >= timeleft) {
-            break
-        }
         // break si encuentra jaque mate forzado
         if (searchInfo.pvTable[0].filter(x=>x.includes("#")).length > 0) {
             break
@@ -623,6 +633,10 @@ export function nicarao(game,timeleft,color) {
         searchInfo.followPV = true
         searchInfo.mate = MATE_SCORE
         score = negamax(game,currentDepth,color,alpha, beta)
+        var actualTime = Date.now()
+        if (actualTime - searchInfo.firstTime >= searchInfo.timeleft) {
+            break
+        }
         // ASPIRATION WINDOWS Revisar por qué omite jugadas de jaque mate en tacticas
         /*if (score <= alpha || score >= beta) {
             alpha = -infinity

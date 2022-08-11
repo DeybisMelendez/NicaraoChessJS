@@ -10,7 +10,7 @@ var config = {
 }
 var board = Chessboard("board", config)
 var promotion = "q"
-var thinkTime = 1000 //ms
+var thinkTime = 4000 //ms
 var pgn = document.getElementById("pgn")
 var set = document.getElementById("set")
 var move = document.getElementById("move")
