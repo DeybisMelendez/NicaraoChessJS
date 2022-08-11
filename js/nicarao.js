@@ -290,11 +290,11 @@ function quiesce(game, color, alpha, beta) {
 function negamax(game, depth, color, alpha, beta) {
     // Inicializa PV Length
     searchInfo.pvLength[searchInfo.ply] = searchInfo.ply
-    //var hashFlag = HASH_F.ALPHA
-    var score = -10000
-    /*if (readHashEntry(generateHashKey(game),alpha,beta,depth) != NO_HASH_ENTRY) {
+    var hashFlag = HASH_F.ALPHA
+    var score = readHashEntry(generateHashKey(game),alpha,beta,depth)
+    if (score != NO_HASH_ENTRY && searchInfo.ply >0) {
         return score
-    }*/
+    }
     if (depth == 0 || game.game_over() || searchInfo.ply > MAX_PLY-1) {
         var val = quiesce(game,color,alpha,beta)
         //var val = evaluate(game,color)
@@ -337,19 +337,19 @@ function negamax(game, depth, color, alpha, beta) {
             storeHistoryMove(game,move,color, depth)
             alpha = score
             // Escribimos el PV
-            //hashFlag = HASH_F.EXACT
+            hashFlag = HASH_F.EXACT
             storePV(move)
         }
         if (score >= beta) {
             // beta cut-off
             storeKillerMove(move)
-            //writeHashEntry(generateHashKey(game),beta,depth,HASH_F.BETA)
+            writeHashEntry(generateHashKey(game),beta,depth,HASH_F.BETA)
             return beta
         }
     }
     //Mate Score
     //searchInfo.mate--
-    //writeHashEntry(generateHashKey(game),alpha,depth,hashFlag)
+    writeHashEntry(generateHashKey(game),alpha,depth,hashFlag)
     return alpha
 }
 
