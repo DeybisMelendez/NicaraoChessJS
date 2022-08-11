@@ -16,7 +16,7 @@ const MVV_LVA = { //Most Valuable Victim - Least Valuable Aggressor
 const MAX_PLY = 64
 const LMR = {fullDepthMove : 3}
 const NULLMOVE = {R:2}
-const ASPIRATION_WINDOW = 50
+const ASPIRATION_WINDOW = 1
 const PIECE = ["wp","wn","wb","wr","wq","wk","bp","bn","bb","br","bq","bk"]
 const HASH_F = {EXACT:0,ALPHA:1,BETA:2}
 const MATE_SCORE = 5000
@@ -272,8 +272,8 @@ function quiesce(game, color, alpha, beta) {
         return beta
     }
     alpha = Math.max(alpha, standPat)
-    var captures = game.moves({verbose:true, legal:true}).filter(move => move.captured != null || move.san.includes("#") || move.san.includes("+"))
-    captures.sort((a,b) => MVV_LVA[b.captured || "k"][b.piece] - MVV_LVA[a.captured || "k"][a.piece])
+    var captures = game.moves({verbose:true, legal:true}).filter(move => move.captured != null)
+    captures.sort((a,b) => MVV_LVA[b.captured][b.piece] - MVV_LVA[a.captured][a.piece])
     var score = 0
     for (var i=0; i<captures.length;i++) {
         var move = captures[i]
@@ -347,7 +347,7 @@ function negamax(game, depth, color, alpha, beta) {
         }
     }
     //Mate Score
-    searchInfo.mate--
+    //searchInfo.mate--
     //writeHashEntry(generateHashKey(game),alpha,depth,hashFlag)
     return alpha
 }
@@ -368,7 +368,7 @@ function unmake(game, move,color) {
 function evaluate(game, color) {
     if (game.game_over()) {
         if (game.in_checkmate()) {
-            return -searchInfo.mate
+            return -searchInfo.mate + searchInfo.ply
         }
     }
     var evaluate = 0
@@ -590,6 +590,11 @@ export function nicarao(game,depth,color) {
             "pv:", searchInfo.pvTable[0].filter(move=>move!=null),
         )
         bestmove = searchInfo.pvTable[0][0]
+        if (score >= MATE_SCORE - 1000) {
+            console.log("Mate in",Math.floor((MATE_SCORE - score+1)/2))
+        } else if(score <= - MATE_SCORE + 1000) {
+            console.log("Mated in",Math.floor((MATE_SCORE + score)/2))
+        }
     }
     console.timeEnd("time")
     return bestmove

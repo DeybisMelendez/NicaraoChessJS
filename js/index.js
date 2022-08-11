@@ -1,6 +1,5 @@
 import {Chess} from "./chess.js"
 import {nicarao} from "./nicarao.js"
-var pgn = document.getElementById("pgn")
 var game = new Chess()
 var config = {
     draggable: true,
@@ -8,7 +7,43 @@ var config = {
     onDragStart: onDragStart,
     onDrop: onDrop,
     onSnapEnd: onSnapEnd,
-    //orientation: "black",
+}
+var board = Chessboard("board", config)
+var promotion = "q"
+var gameturn = 1
+var gamedepth = 4
+var pgn = document.getElementById("pgn")
+var set = document.getElementById("set")
+var move = document.getElementById("move")
+var undo = document.getElementById("undo")
+var flip = document.getElementById("flip")
+var promoDropdown = document.getElementById("promo")
+set.addEventListener("click",setBoard)
+flip.addEventListener("click",()=>board.flip())
+move.addEventListener("click",()=>nicaraoMove(gameturn,gamedepth))
+undo.addEventListener("click",()=>undoMove())
+document.getElementById("queenPromotion").addEventListener("click",()=>{promotion="q";promoDropdown.innerHTML = "Queen"})
+document.getElementById("knightPromotion").addEventListener("click",()=>{promotion="n";promoDropdown.innerHTML = "Knight"})
+document.getElementById("rookPromotion").addEventListener("click",()=>{promotion="r";promoDropdown.innerHTML = "Rook"})
+document.getElementById("bishopPromotion").addEventListener("click",()=>{promotion="b";promoDropdown.innerHTML = "Bishop"})
+function undoMove() {
+    if (game.history().length > 0) {
+        game.undo()
+        board.position(game.fen())
+        pgn.innerHTML = game.pgn()
+    }
+}
+
+function setBoard(){
+    var fen = document.getElementById("fen").value
+    var valid = game.validate_fen(fen)
+    if (valid.valid) {
+        game.clear()
+        game.load(fen)
+        board.position(fen)
+    } else {
+        alert("FEN is not valid")
+    }
 }
 
 function onDragStart (source, piece, position, orientation) {
@@ -25,7 +60,7 @@ function onDrop (source, target) {
     var move = game.move({
         from: source,
         to: target,
-        promotion: 'q' // NOTE: always promote to a queen for example simplicity
+        promotion: promotion
     })
     // illegal move
     if (move === null) return 'snapback'
@@ -36,33 +71,13 @@ function onDrop (source, target) {
 // for castling, en passant, pawn promotion
 function onSnapEnd () {
     board.position(game.fen())
-    pgn.innerHTML = "PGN: " + game.pgn()
-    nicaraoMove(gameturn,gamedepth)
+    pgn.innerHTML = game.pgn()
+    setTimeout(nicaraoMove,300,gameturn,gamedepth)
 }
-var board = Chessboard("board", config)
-
-document.getElementById("white").addEventListener("click", playwhite)
-document.getElementById("black").addEventListener("click", playblack)
-
-function playwhite() {
-    gameturn = 1
-    board.orientation("white")
-    nicaraoMove(gameturn,gamedepth)
-}
-
-function playblack() {
-    gameturn = -1
-    board.orientation("black")
-    //nicaraoMove(gameturn,gamedepth)
-}
-
-var gameturn = -1
-var gamedepth = 4
 
 function nicaraoMove(turn, depth) {
     var bestmove = nicarao(game,depth,turn)
     game.move(bestmove)
     board.position(game.fen())
-    pgn.innerHTML = "PGN: " + game.pgn()
-    //setTimeout(nicaraoMove,300,-turn,depth)
+    pgn.innerHTML = game.pgn()
 }
