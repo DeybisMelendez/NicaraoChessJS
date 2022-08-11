@@ -550,7 +550,7 @@ function piecesEvaluation(pieceList) {
     return white - black
 }
 
-export function nicarao(game,depth,color) {
+export function nicarao(game,time,color) {
     console.time("time")
     var fen = game.fen()
     setSearchInfo(fen)

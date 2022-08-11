@@ -10,8 +10,7 @@ var config = {
 }
 var board = Chessboard("board", config)
 var promotion = "q"
-var gameturn = 1
-var gamedepth = 4
+var thinkTime = 1000 //ms
 var pgn = document.getElementById("pgn")
 var set = document.getElementById("set")
 var move = document.getElementById("move")
@@ -20,7 +19,7 @@ var flip = document.getElementById("flip")
 var promoDropdown = document.getElementById("promo")
 set.addEventListener("click",setBoard)
 flip.addEventListener("click",()=>board.flip())
-move.addEventListener("click",()=>nicaraoMove(gameturn,gamedepth))
+move.addEventListener("click",()=>nicaraoMove(thinkTime))
 undo.addEventListener("click",()=>undoMove())
 document.getElementById("queenPromotion").addEventListener("click",()=>{promotion="q";promoDropdown.innerHTML = "Queen"})
 document.getElementById("knightPromotion").addEventListener("click",()=>{promotion="n";promoDropdown.innerHTML = "Knight"})
@@ -67,16 +66,18 @@ function onDrop (source, target) {
 
 }
 
-// update the board position after the piece snap
-// for castling, en passant, pawn promotion
 function onSnapEnd () {
     board.position(game.fen())
     pgn.innerHTML = game.pgn()
-    setTimeout(nicaraoMove,300,gameturn,gamedepth)
+    setTimeout(nicaraoMove,300,thinkTime)
 }
 
-function nicaraoMove(turn, depth) {
-    var bestmove = nicarao(game,depth,turn)
+function nicaraoMove(time) {
+    var turn = -1
+    if (game.turn() == "w") {
+        turn = 1
+    }
+    var bestmove = nicarao(game,time,turn)
     game.move(bestmove)
     board.position(game.fen())
     pgn.innerHTML = game.pgn()
