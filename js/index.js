@@ -56,7 +56,7 @@ function playblack() {
     //nicaraoMove(gameturn,gamedepth)
 }
 
-var gameturn = 1
+var gameturn = -1
 var gamedepth = 4
 
 function nicaraoMove(turn, depth) {

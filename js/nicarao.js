@@ -1,5 +1,6 @@
 //https://web.archive.org/web/20071026090003/http://www.brucemo.com/compchess/programming/index.htm
-// TODO Problema con NullMove y Aspiration Windows
+// TODO Problema con Tabla de transposicion y Aspiration Windows
+// TODO Añadir Regla de tarrash para el final "torres detras de peones pasados"
 import { Chess } from "./chess.js"
 import {PST} from "./pieceSquareTable.js"
 
@@ -13,7 +14,7 @@ const MVV_LVA = { //Most Valuable Victim - Least Valuable Aggressor
     none : {k:10,q:20,r:30,b:40,n:50,p:60}
 }
 const MAX_PLY = 64
-const LMR = {fullDepthMove : 6}
+const LMR = {fullDepthMove : 3}
 const NULLMOVE = {R:2}
 const ASPIRATION_WINDOW = 50
 const PIECE = ["wp","wn","wb","wr","wq","wk","bp","bn","bb","br","bq","bk"]
@@ -375,14 +376,15 @@ function evaluate(game, color) {
     // Game Phase
     var phase = "mg"
     var minorPieces = pieceList.filter(piece => piece.type == "n" || piece.type == "b" || piece.type == "r")
-    var queensCount = pieceList.filter(piece => piece.type == "q").length
-    if (queensCount == 0 || minorPieces.length <= 4 && queensCount > 0) {
+    var queens = pieceList.filter(piece => piece.type == "q")
+    if (queens.length == 0 || minorPieces.length <= 4 && queens.length > 0) {
         phase = "eg"
         evaluate += searchInfo.materialEG
     } else {
         evaluate += searchInfo.materialMG
     }
-    evaluate += pstBonus(phase, pieceList)
+    evaluate += pst(phase, pieceList)
+    evaluate += piecesEvaluation(pieceList)
     searchInfo.phase = phase
     return evaluate * color
 }
@@ -463,7 +465,7 @@ function phaseBonus(phase, color, type, square) {
     return PST[phase][color][type][PST.position.indexOf(square)]
 }
 
-function pstBonus(phase, pieceList) {
+function pst(phase, pieceList) {
     var white = 0
     var black = 0
     pieceList.forEach(piece => {
@@ -471,6 +473,78 @@ function pstBonus(phase, pieceList) {
             white += phaseBonus(phase,piece.color,piece.type,piece.square)
         } else {
             black += phaseBonus(phase,piece.color,piece.type,piece.square)
+        }
+    })
+    return white - black
+}
+
+function piecesEvaluation(pieceList) {
+    var white = 0,black = 0
+    var pawns = pieceList.filter(x=>x.type = "p")
+    var whiteBishops = pieceList.filter(x=>x.type=="b"&&x.color=="w")
+    var whiteKnights = pieceList.filter(x=>x.type=="n"&&x.color=="w")
+    var whiteRooks = pieceList.filter(x=>x.type=="r"&&x.color=="w")
+    var blackKnights = pieceList.filter(x=>x.type=="n"&&x.color=="b")
+    var blackBishops = pieceList.filter(x=>x.type=="b"&&x.color=="b")
+    var blackRooks = pieceList.filter(x=>x.type=="r"&&x.color=="b")
+    // Penalización por mal caballo (menos peones menos valor)
+    var pawnBonus = 80 - (pawns.length * 5)
+    if (whiteKnights.length > 0) {
+        white -= pawnBonus
+    }
+    if (blackKnights.length > 0) {
+        black -= pawnBonus
+    }
+    // Bonificación por pareja de alfiles
+    if (whiteBishops.length>1){
+        white += 50
+    }
+    if (blackBishops.length>1) {
+        black += 50
+    }
+    // Bonificación por buena torre (menos peones mas valor) 5x16=80
+    if (whiteRooks.length > 0) {
+        white += pawnBonus
+    }
+    if (blackRooks.length > 0) {
+        black += pawnBonus
+    }
+    // Bonificación por torre en columna abierta
+    var rooks = whiteRooks.concat(blackRooks)
+    if (pawns.length > 8) { // solo si hay mas de 8 peones
+        rooks.forEach(rook => {
+            var pawnsOnFile = pawns.filter(x=>x.square.includes(rook.square[0]))
+            if (pawnsOnFile.length==0) {
+                if (rook.color == "w") {
+                    white += 20
+                } else {
+                    black += 20
+                }
+            }
+        })
+    }
+    // Bonificación por torre atacando dama (incluso con rayos X)
+    rooks.forEach(rook => {
+        var queens = pieceList.filter(x=>x.type == "q" && x.color =="w")
+        queens.forEach(queen => {
+            if (queen.square.includes(rook.square[0]) && queen.color != rook.color) {
+                if (rook.color == "w") {
+                    white += 10
+                } else {
+                    black += 10
+                }
+            }
+        })
+    })
+    // Penalización por peón doblado 5 por peon, ej: 2 peones en una columna = 10, 3 peones = 15,etc.
+    pawns.forEach(pawn => {
+        var doubled = pawns.filter(x=>x.color == pawn.color && x.square.includes(pawn.square[0])).length
+        if (doubled > 0) {
+            if (pawn.color == "w") {
+                white -= 5
+            } else {
+                black -= 5
+            }
         }
     })
     return white - black
@@ -490,7 +564,7 @@ export function nicarao(game,depth,color) {
     var time = new Date().getTime()
     for (var currentDepth=1;true;currentDepth++){
         var actualTime = new Date().getTime()
-        if (actualTime - time >= 1500) {
+        if (actualTime - time >= 1000) {
             break
         }
         // break si encuentra jaque mate forzado

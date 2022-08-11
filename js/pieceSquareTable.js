@@ -112,7 +112,7 @@ export const PST = {
     ],
     piece : ["k", "p", "n","b", "r", "q"],
     pieceValueMG : {p:100,n:320,b:330,r:500,q:900},
-    pieceValueEG : {p:130,n:300,b:350,r:550,q:900},
+    pieceValueEG : {p:120,n:320,b:350,r:550,q:900},
     mg : {
         w : {
             p : pawnMG,
