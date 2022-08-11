@@ -132,10 +132,9 @@ function writeHashEntry(hashKey,score, depth, flag) {
     hashEntry.depth = depth
 }
 
-function is_lmr_ok(move, incheck) {
+function is_lmr_ok(move, inCheck) {
     var isNotCapture = move.captured == null
-    var isNotCheck = move.san[move.san.length-1] != "+"
-    return isNotCapture && isNotCheck && !incheck
+    return isNotCapture && !inCheck
 }
 
 function setSearchInfo(fen) {
@@ -291,7 +290,7 @@ function quiesce(game, color, alpha, beta) {
 function negamax(game, depth, color, alpha, beta) {
     // Inicializa PV Length
     searchInfo.pvLength[searchInfo.ply] = searchInfo.ply
-    var hashFlag = HASH_F.ALPHA
+    //var hashFlag = HASH_F.ALPHA
     var score = -10000
     /*if (readHashEntry(generateHashKey(game),alpha,beta,depth) != NO_HASH_ENTRY) {
         return score
@@ -313,30 +312,32 @@ function negamax(game, depth, color, alpha, beta) {
         //probando
         return beta
     }
-    var movesSearched = 0
+    //var movesSearched = 0
     for (var i=0; i < moves.length;i++) {
         var move = moves[i]
         make(game,move,color)
         // Late Move Reduction LMR
-        var PVReduction = depth-1
-        var nonPVReduction = Math.floor(depth*0.66667)
-        if (movesSearched >= LMR.fullDepthMove && is_lmr_ok(move, game.in_check())) {
-            score = -negamax(game,nonPVReduction,-color,-alpha-1,-alpha)
-            if (alpha < score && score < beta) {
-                score = -negamax(game,PVReduction,-color, -beta, -alpha)
+        var PVReduction = Math.floor(depth*0.6666666667)
+        var nonPVReduction = depth-1
+        if (i >= LMR.fullDepthMove && is_lmr_ok(move, game.in_check())) {
+            score = -negamax(game,PVReduction,-color,-alpha-1,-alpha)
+            if (score > alpha && score < beta) {
+                //https://www.chessprogramming.org/NegaScout#Guido_Schimmels
+                var score2 = -negamax(game,nonPVReduction,-color, -beta, -alpha)
+                score = Math.max(score,score2)
             }
         } else {
-            //Research normal Negamax
-            score = -negamax(game,PVReduction,-color, -beta, -alpha)
+            //Principal Variation Search Negamax
+            score = -negamax(game,nonPVReduction,-color, -beta, -alpha)
         }
-        movesSearched++ 
+        //movesSearched++ 
         unmake(game,move,color)
         if (score > alpha) {
             //encontró un mejor movimiento
             storeHistoryMove(game,move,color, depth)
             alpha = score
             // Escribimos el PV
-            hashFlag = HASH_F.EXACT
+            //hashFlag = HASH_F.EXACT
             storePV(move)
         }
         if (score >= beta) {
@@ -373,6 +374,7 @@ function evaluate(game, color) {
     }
     var evaluate = 0
     var pieceList = [].concat(...game.board()).filter(piece => piece != null)
+    var pawns = pieceList.filter(x=>x.type == "p")
     // Game Phase
     var phase = "mg"
     var minorPieces = pieceList.filter(piece => piece.type == "n" || piece.type == "b" || piece.type == "r")
@@ -382,9 +384,10 @@ function evaluate(game, color) {
         evaluate += searchInfo.materialEG
     } else {
         evaluate += searchInfo.materialMG
+        evaluate += centerControl(pawns)
     }
     evaluate += pst(phase, pieceList)
-    evaluate += piecesEvaluation(pieceList)
+    evaluate += piecesEvaluation(pieceList, pawns)
     searchInfo.phase = phase
     return evaluate * color
 }
@@ -478,9 +481,28 @@ function pst(phase, pieceList) {
     return white - black
 }
 
-function piecesEvaluation(pieceList) {
+function centerControl(pawns) {
+    var white = 0, black = 0
+    pawns.forEach(pawn => {
+        if (PST.center.includes(pawn.square)) {
+            if (pawn.color == "w") {
+                white += 10
+            } else {
+                black += 10
+            }  
+        } else if (PST.extendedCenter.includes(pawn.square)) {
+            if (pawn.color == "w") {
+                white += 5
+            } else {
+                black += 5
+            }  
+        }
+    })
+    return white - black
+}
+
+function piecesEvaluation(pieceList,pawns) {
     var white = 0,black = 0
-    var pawns = pieceList.filter(x=>x.type = "p")
     var whiteBishops = pieceList.filter(x=>x.type=="b"&&x.color=="w")
     var whiteKnights = pieceList.filter(x=>x.type=="n"&&x.color=="w")
     var whiteRooks = pieceList.filter(x=>x.type=="r"&&x.color=="w")
@@ -502,6 +524,32 @@ function piecesEvaluation(pieceList) {
     if (blackBishops.length>1) {
         black += 50
     }
+    // Penalización por mal alfil
+    var bishops = whiteBishops.concat(blackBishops)
+    bishops.forEach(bishop => {
+        var col = (PST.cols.indexOf(bishop.square[0])+1)%2 == 0
+        var file = (Number(bishop.square[1]))%2 == 0
+        var color = "w"
+        if (col==0 && file==0 || col!=0 && file!=0) {
+            color = "b"
+        }
+        var pawnsOnColor = pieceList.filter(x=>{
+            var pawnCol = (PST.cols.indexOf(x.square[0])+1)%2 == 0
+            var pawnFile = (Number(x.square[1]))%2 == 0
+            var pawnColor = "w"
+            if (pawnCol==0 && pawnFile==0 || pawnCol!=0 && pawnFile!=0) {
+                pawnColor = "b"
+            }
+            return x.color == bishop.color && color == pawnColor
+        })
+        if (pawnsOnColor.length > 3) {
+            if (bishop.color == "w") {
+                white -= 50
+            } else {
+                black -= 50
+            }
+        }
+    })
     // Bonificación por buena torre (menos peones mas valor) 5x16=80
     if (whiteRooks.length > 0) {
         white += pawnBonus
@@ -550,7 +598,7 @@ function piecesEvaluation(pieceList) {
     return white - black
 }
 
-export function nicarao(game,time,color) {
+export function nicarao(game,timeleft,color) {
     console.time("time")
     var fen = game.fen()
     setSearchInfo(fen)
@@ -561,10 +609,10 @@ export function nicarao(game,time,color) {
     var infinity = 10000
     var alpha = -infinity
     var beta = infinity
-    var time = new Date().getTime()
+    var firstTime = new Date().getTime()
     for (var currentDepth=1;true;currentDepth++){
         var actualTime = new Date().getTime()
-        if (actualTime - time >= 1000) {
+        if (actualTime - firstTime >= timeleft) {
             break
         }
         // break si encuentra jaque mate forzado
