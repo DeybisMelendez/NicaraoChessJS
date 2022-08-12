@@ -1,5 +1,5 @@
-import {Chess} from "./chess.js"
-import {nicarao} from "./nicarao.js"
+import {Chess} from "./chess.mjs"
+import {Nicarao} from "./nicarao.mjs"
 var game = new Chess()
 var config = {
     draggable: true,
@@ -7,10 +7,14 @@ var config = {
     onDragStart: onDragStart,
     onDrop: onDrop,
     onSnapEnd: onSnapEnd,
+    onMoveEnd: onMoveEnd
 }
 var board = Chessboard("board", config)
 var promotion = "q"
 var thinkTime = 4000 //ms
+var bestmove
+var moveSound = new Audio("/sounds/move")
+var captureSound = new Audio("/sounds/capture")
 var pgn = document.getElementById("pgn")
 var set = document.getElementById("set")
 var move = document.getElementById("move")
@@ -55,12 +59,14 @@ function onDragStart (source, piece, position, orientation) {
     }
   }
 function onDrop (source, target) {
+    moveSound.play()
     // see if the move is legal
     var move = game.move({
         from: source,
         to: target,
         promotion: promotion
     })
+    bestmove=move
     // illegal move
     if (move === null) return 'snapback'
 
@@ -69,16 +75,18 @@ function onDrop (source, target) {
 function onSnapEnd () {
     board.position(game.fen())
     pgn.innerHTML = game.pgn()
-    setTimeout(nicaraoMove,300,thinkTime)
+    moveSound.play()
+    setTimeout(nicaraoMove,200,thinkTime)
+}
+
+function onMoveEnd(o,n) {
+    //moveSound.play()
 }
 
 function nicaraoMove(time) {
-    var turn = -1
-    if (game.turn() == "w") {
-        turn = 1
-    }
-    var bestmove = nicarao(game,time,turn)
+    bestmove = Nicarao(game,Date.now()+time,-1)
     game.move(bestmove)
     board.position(game.fen())
     pgn.innerHTML = game.pgn()
+    //moveSound.play()
 }

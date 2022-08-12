@@ -1,8 +1,8 @@
 //https://web.archive.org/web/20071026090003/http://www.brucemo.com/compchess/programming/index.htm
 // TODO Problema con Aspiration Windows
 // TODO Añadir Regla de tarrash para el final "torres detras de peones pasados"
-import { Chess } from "./chess.js"
-import {PST} from "./pieceSquareTable.js"
+import {Chess} from "./chess.mjs"
+import {PST} from "./pieceSquareTable.mjs"
 
 const MVV_LVA = { //Most Valuable Victim - Least Valuable Aggressor
     k : {k:600,q:610,r:620,b:630,n:640,p:640},
@@ -177,10 +177,10 @@ function storePV(move) {
     // Triangular PV Table
     // escribe el actual pv
     var ply = searchInfo.ply
-    searchInfo.pvTable[searchInfo.ply][searchInfo.ply] = move.san
+    searchInfo.pvTable[searchInfo.ply][searchInfo.ply] = {...move}//.san
     // escribimos desde la capa mas profunda hasta la actual
     for (var nextPly=ply+1;nextPly< searchInfo.pvLength[ply+1];nextPly++) {
-        searchInfo.pvTable[ply][nextPly] = searchInfo.pvTable[ply+1][nextPly]
+        searchInfo.pvTable[ply][nextPly] = {...searchInfo.pvTable[ply+1][nextPly]}
     }
     // ajuste pv length
     searchInfo.pvLength[ply] = searchInfo.pvLength[ply+1]
@@ -188,17 +188,19 @@ function storePV(move) {
 
 function enablePVScoring(moves) {
     searchInfo.followPV = false
-    if (moves.filter(move=>move.san == searchInfo.pvTable[0][searchInfo.ply]).length == 1) {
+    var contains = moves.filter(move=>{
+        if (searchInfo.pvTable[0][searchInfo.ply]) {
+            return move.san == searchInfo.pvTable[0][searchInfo.ply].san
+        }
+    })
+    if (contains.length == 1) {
         searchInfo.scorePV = true
         searchInfo.followPV = true
     }
 }
 
 function nullMove(inCheck,depth, fen, color, beta) { // TODO
-    var actualTime = Date.now()
-        if (actualTime - searchInfo.firstTime >= searchInfo.timeleft) {
-            return 0
-        }
+    if (isTimeToStop()) return 0
     if (depth>= NULLMOVE.R+1 && !inCheck && searchInfo.ply > 0) {
         if (color == -1) {
             fen = fen.replace(" b ", " w ")
@@ -228,9 +230,12 @@ function valueMove(move, color) {
     }
     //PV Move
     if (searchInfo.scorePV) {
-        if (searchInfo.pvTable[searchInfo.ply][searchInfo.ply] == move.san) {
-        searchInfo.scorePV = false
-        return 2000
+        var m = searchInfo.pvTable[searchInfo.ply][searchInfo.ply]
+        if (m!= null) {
+            if (m.san == move.san) {
+                searchInfo.scorePV = false
+                return 2000
+            }
         }
     }
     //MVV-LVA
@@ -270,10 +275,7 @@ function sortMoves(moves,color) {
 }
 
 function quiesce(game, color, alpha, beta) {
-    var actualTime = Date.now()
-        if (actualTime - searchInfo.firstTime >= searchInfo.timeleft) {
-            return 0
-        }
+    if (isTimeToStop()) return 0
     var standPat = evaluate(game, color)
     if (standPat >= beta) {
         return beta
@@ -296,10 +298,7 @@ function quiesce(game, color, alpha, beta) {
 }
 // Negamax + Alpha beta + LMR
 function negamax(game, depth, color, alpha, beta) {
-    var actualTime = new Date().getTime()
-    if (actualTime - searchInfo.firstTime >= searchInfo.timeleft) {
-        return 0
-    }
+    if (isTimeToStop()) return 0
     // Inicializa PV Length
     searchInfo.pvLength[searchInfo.ply] = searchInfo.ply
     var hashFlag = HASH_F.ALPHA
@@ -328,7 +327,7 @@ function negamax(game, depth, color, alpha, beta) {
         make(game,move,color)
         // Late Move Reduction LMR
         var nonPVReduction = depth-1
-        var PVReduction = Math.floor(depth*0.6666666667)
+        var PVReduction = Math.floor(depth/3)//Math.floor(depth*0.6666666667)
         if (i >= LMR.fullDepthMove && is_lmr_ok(move, game.in_check())) {
             score = -negamax(game,PVReduction,-color,-alpha-1,-alpha)
             if (score > alpha && score < beta) {
@@ -365,27 +364,25 @@ function negamax(game, depth, color, alpha, beta) {
 function make(game, move, color) {
     game.move(move.san)
     searchInfo.ply++
-    adjustMaterial(move,color, true)
+    //adjustMaterial(move,color, true)
     searchInfo.nodes++
 }
 
 function unmake(game, move,color) {
     searchInfo.ply--
-    adjustMaterial(move,color, false)
+    //adjustMaterial(move,color, false)
     game.undo()
 }
 
 function evaluate(game, color) {
-    var actualTime = Date.now()
-        if (actualTime - searchInfo.firstTime >= searchInfo.timeleft) {
-            return 0
-        }
-    if (game.game_over()) {
-        if (game.in_checkmate()) {
-            return -searchInfo.mate + searchInfo.ply
-        }
+    if (isTimeToStop()) return 0
+    if (game.in_checkmate()) {
+        return -searchInfo.mate + searchInfo.ply
+    } else if (game.in_stalemate() || game.in_threefold_repetition()){
+        return 0
     }
     var evaluate = 0
+    valueMaterial(game.fen())
     var pieceList = [].concat(...game.board()).filter(piece => piece != null)
     var pawns = pieceList.filter(x=>x.type == "p")
     // Game Phase
@@ -597,46 +594,82 @@ function piecesEvaluation(pieceList,pawns) {
             }
         })
     })
-    // Penalización por peón doblado 5 por peon, ej: 2 peones en una columna = 10, 3 peones = 15,etc.
+    // Penalización por peón doblado 25 por peon, ej: 2 peones en una columna = 50, 3 peones = 75,etc.
     pawns.forEach(pawn => {
         var doubled = pawns.filter(x=>x.color == pawn.color && x.square.includes(pawn.square[0])).length
         if (doubled > 0) {
             if (pawn.color == "w") {
-                white -= 5
+                white -= 25
             } else {
-                black -= 5
+                black -= 25
             }
         }
     })
     return white - black
 }
 
-export function nicarao(game,timeleft,color) {
-    console.time("time")
+function isTimeToStop() {
+    if (searchInfo.stopTime != -1){
+        let now = Date.now()
+        if (now >= searchInfo.stopTime) {
+            return true
+        }
+    }
+    return false
+}
+
+export function SetHashSize(Mb) {
+    hashTable = []
+    
+    // adjust MB if going beyond the aloowed bounds
+    if(Mb < 4) Mb = 4
+    if(Mb > 128) Mb = 128
+    
+    hashEntries = parseInt(Mb * 0x100000 / 20)
+    initHashTable()
+    
+    console.log('Set hash table size to', Mb, 'Mb');
+    console.log('Hash table initialized with', hashEntries, 'entries');
+}
+
+function formatPV(pv) {
+    var strPV = ""
+    pv = pv.filter(pv=>pv!= null)
+    pv.forEach(move => {
+        strPV += move.from + move.to
+        if (move.promotion != null) {
+            strPV += move.promotion
+        }
+        strPV += " "
+    })
+    return strPV
+}
+
+export function Nicarao(game,stopTime,depth) {
     var fen = game.fen()
     setSearchInfo(fen)
     initHashTable()
     //Iterative Deepening + Aspiration Windows
     var score = 0
-    var bestmove = ""
-    var infinity = 10000
+    var bestmove
+    var infinity = 4000
     var alpha = -infinity
     var beta = infinity
-    searchInfo.firstTime = new Date().getTime()
-    searchInfo.timeleft = timeleft
-    for (var currentDepth=1;true;currentDepth++){
+    searchInfo.stopTime = stopTime
+    var currentDepth = 1
+    var color = 1
+    if (game.turn() == "b") {
+        color = -1
+    }
+    while(true){
         // break si encuentra jaque mate forzado
-        if (searchInfo.pvTable[0].filter(x=>x.includes("#")).length > 0) {
-            break
-        }
+        if (searchInfo.pvTable[0].filter(x=>x.san.includes("#")).length > 0) break
+        if (depth==0) break
         valueMaterial(fen)
         searchInfo.followPV = true
         searchInfo.mate = MATE_SCORE
         score = negamax(game,currentDepth,color,alpha, beta)
-        var actualTime = Date.now()
-        if (actualTime - searchInfo.firstTime >= searchInfo.timeleft) {
-            break
-        }
+        if (isTimeToStop()) break
         // ASPIRATION WINDOWS Revisar por qué omite jugadas de jaque mate en tacticas
         /*if (score <= alpha || score >= beta) {
             alpha = -infinity
@@ -644,20 +677,20 @@ export function nicarao(game,timeleft,color) {
         }
         alpha = score - ASPIRATION_WINDOW
         beta = score + ASPIRATION_WINDOW*/
-        console.log("cp:",score,
-            "depth:",currentDepth,
-            "nodes:", searchInfo.nodes,
-            "material:", searchInfo.materialMG,searchInfo.materialEG,
-            "phase", searchInfo.phase,
-            "pv:", searchInfo.pvTable[0].filter(move=>move!=null),
+        console.log("info",
+            "depth", currentDepth,
+            "score cp",score,
+            "nodes", searchInfo.nodes,
+            "pv", formatPV(searchInfo.pvTable[0]),
         )
-        bestmove = searchInfo.pvTable[0][0]
-        if (score >= MATE_SCORE - 1000) {
+        bestmove = {...searchInfo.pvTable[0][0]}
+        /*if (score >= MATE_SCORE - 1000) {
             console.log("Mate in",Math.floor((MATE_SCORE - score+1)/2))
         } else if(score <= - MATE_SCORE + 1000) {
             console.log("Mated in",Math.floor((MATE_SCORE + score)/2))
-        }
+        }*/
+        depth--
+        currentDepth++
     }
-    console.timeEnd("time")
     return bestmove
 }
